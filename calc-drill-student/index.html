@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>계산 학습</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; background: #f0f0f0; min-height: 100vh; }
+  .header { background: #FEE500; padding: 16px 20px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.1); display:flex; align-items:center; justify-content:space-between; }
+  .header-title { font-size: 17px; font-weight: 700; color: #3C1E1E; }
+  .header-sub { font-size: 12px; color: #7a5a2a; }
+  .container { padding: 16px; max-width: 480px; margin: 0 auto; }
+  .card { background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
+  .card-title { font-size: 14px; font-weight: 700; color: #333; margin-bottom: 14px; }
+  label { font-size: 13px; color: #555; margin-bottom: 6px; display: block; }
+  select, input[type="text"] {
+    width: 100%; padding: 12px 14px; border: 1.5px solid #e0e0e0; border-radius: 10px;
+    font-size: 14px; outline: none; font-family: inherit; -webkit-appearance:none; appearance:none;
+  }
+  select { background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 14px center; background-size: 12px; }
+  select:focus, input:focus { border-color: #FEE500; }
+  .mb-3 { margin-bottom: 12px; }
+  .btn { width: 100%; padding: 15px; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
+  .btn-primary { background: #FEE500; color: #3C1E1E; }
+  .btn-primary:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; }
+  .btn-secondary { background: #fff; color: #555; border: 1.5px solid #ddd; }
+  .ws-item { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-radius:12px; background:#fafafa; margin-bottom:8px; cursor:pointer; }
+  .ws-item:active { background:#f0f0f0; }
+  .ws-title { font-size:14px; font-weight:600; color:#333; }
+  .ws-status { font-size:12px; }
+  .status-pass { color:#16a34a; }
+  .status-progress { color:#ea580c; }
+  .status-new { color:#999; }
+  .q-card { background:#fff; border-radius:14px; padding:16px; margin-bottom:10px; box-shadow:0 2px 10px rgba(0,0,0,.05); }
+  .q-no { font-size:13px; font-weight:700; color:#3C1E1E; margin-bottom:10px; }
+  .choice-row { display:flex; gap:8px; flex-wrap:wrap; }
+  .choice-btn { width:42px; height:42px; border-radius:50%; border:2px solid #ddd; background:#fff; font-size:14px; font-weight:700; cursor:pointer; color:#555; }
+  .choice-btn.selected { border-color:#FEE500; background:#FEE500; color:#3C1E1E; }
+  .symbol-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .symbol-btn { width:34px; height:34px; border-radius:8px; border:1px solid #ddd; background:#fafafa; font-size:13px; cursor:pointer; color:#444; }
+  .symbol-btn:active { background:#FEE500; }
+  .top-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
+  .back-link { font-size:13px; color:#666; cursor:pointer; }
+  .attempt-badge { font-size:12px; color:#7a5a2a; background:#fffde7; padding:4px 10px; border-radius:999px; margin-left:auto; }
+  .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:999; align-items:center; justify-content:center; }
+  .overlay.show { display:flex; }
+  .modal { background:#fff; border-radius:20px; padding:32px 24px; text-align:center; max-width:320px; width:88%; }
+  .modal-icon { font-size:52px; margin-bottom:14px; }
+  .modal-title { font-size:19px; font-weight:800; color:#222; margin-bottom:8px; }
+  .modal-sub { font-size:13px; color:#666; line-height:1.6; margin-bottom:22px; }
+  .hidden { display:none; }
+  .error-msg { color:#ef4444; font-size:13px; text-align:center; margin-top:8px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <div class="header-title">계산 학습</div>
+    <div class="header-sub" id="headerSub">틀리면 다시, 맞을 때까지</div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- 화면 1: 반/이름 선택 -->
+  <div id="screenLogin">
+    <div class="card">
+      <div class="card-title">반과 이름을 선택하세요</div>
+      <div class="mb-3">
+        <label>반</label>
+        <select id="classSelect"><option value="">반 선택</option></select>
+      </div>
+      <div class="mb-3">
+        <label>이름</label>
+        <select id="studentSelect" disabled><option value="">먼저 반을 선택하세요</option></select>
+      </div>
+      <button class="btn btn-primary" id="loginBtn" disabled>확인</button>
+    </div>
+  </div>
+
+  <!-- 화면 2: 학습지 목록 -->
+  <div id="screenList" class="hidden">
+    <div class="top-bar">
+      <span class="back-link" id="logoutLink">‹ 다른 사람으로 접속</span>
+    </div>
+    <div class="card">
+      <div class="card-title">내 학습지</div>
+      <div id="worksheetList"></div>
+      <div id="noWorksheet" class="hidden" style="font-size:13px;color:#999;">배정된 학습지가 없어요.</div>
+    </div>
+  </div>
+
+  <!-- 화면 3: 문제 풀이 -->
+  <div id="screenQuiz" class="hidden">
+    <div class="top-bar">
+      <span class="back-link" id="backToList">‹ 목록으로</span>
+      <span class="attempt-badge" id="attemptBadge">1차 시도</span>
+    </div>
+    <div class="card" style="margin-bottom:14px;">
+      <div class="card-title" id="quizTitle" style="margin-bottom:0;"></div>
+    </div>
+    <div id="quizForm"></div>
+    <button class="btn btn-primary" id="submitBtn" style="margin-top:6px;">제출하기</button>
+    <div id="quizError" class="error-msg hidden"></div>
+  </div>
+
+</div>
+
+<!-- 결과 팝업 -->
+<div class="overlay" id="resultOverlay">
+  <div class="modal">
+    <div class="modal-icon" id="resultIcon">🎉</div>
+    <div class="modal-title" id="resultTitle"></div>
+    <div class="modal-sub" id="resultSub"></div>
+    <button class="btn btn-primary" id="resultBtn"></button>
+  </div>
+</div>
+
+<script>
+// =========================================================
+// Supabase 연결 정보 — 반드시 본인 프로젝트 값으로 교체하세요
+// =========================================================
+const SUPABASE_URL = 'https://scwoijhooabnluplvmxl.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjd29pamhvb2Fibmx1cGx2bXhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MjgxOTAsImV4cCI6MjEwMTQwNDE5MH0.rNZM_kty-FMpiTobzNchv38OqLpNKx_WdD8-oJGPUPA';
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// =========================================================
+// 채점 로직 (분수/근호/로그/파이/자연상수/무한대/지수/절댓값/
+// 부등식 방향 무시/대소문자 무시/단위 무시/순서쌍 지원)
+// =========================================================
+function safeEval(exprRaw) {
+  if (exprRaw === null || exprRaw === undefined) return null;
+  let s = String(exprRaw).trim();
+  if (!s) return null;
+  s = s.replace(/[가-힣]/g, "");
+  s = s.replace(/°/g, "");
+  s = s.trim();
+  if (!s) return null;
+  s = s.replace(/√/g, "sqrt");
+  s = s.replace(/π/g, "PI");
+  s = s.replace(/\bpi\b/gi, "PI");
+  s = s.replace(/∞/g, "Infinity");
+  s = s.replace(/\^/g, "**");
+  s = s.replace(/\blog\(/gi, "logb(");
+  s = s.replace(/\|([^|]+)\|/g, "abs($1)");
+  s = s.replace(/sqrt(-?\d+(\.\d+)?)/g, "sqrt($1)");
+  s = s.replace(/(?<![a-zA-Z])e(?![a-zA-Z])/g, "E");
+  s = s.replace(/([0-9)])(sqrt|logb|abs|PI|E|Infinity|\()/g, "$1*$2");
+  s = s.replace(/(PI|E|Infinity)([0-9(])/g, "$1*$2");
+  if (!/^[0-9+\-*/().,\sA-Za-z]+$/.test(s)) return null;
+  const forbidden = /process|require|import|constructor|function|=>|this|global|eval|window|document/i;
+  if (forbidden.test(s)) return null;
+  try {
+    const fn = new Function("sqrt","abs","logb","PI","E","Infinity", `"use strict"; return (${s});`);
+    const result = fn(Math.sqrt, Math.abs, (b,a)=>Math.log(a)/Math.log(b), Math.PI, Math.E, Infinity);
+    if (typeof result !== "number" || Number.isNaN(result)) return null;
+    return result;
+  } catch { return null; }
+}
+function parseInequality(str) {
+  let s = String(str).replace(/\s/g, "").toLowerCase();
+  s = s.replace(/≥/g, ">=").replace(/≤/g, "<=");
+  let m = s.match(/^([a-z])(>=|<=|>|<)([\-0-9./a-z]+)$/);
+  if (m) { const v = safeEval(m[3]); if (v===null) return null; return { op: m[2], value: v }; }
+  m = s.match(/^([\-0-9./a-z]+)(>=|<=|>|<)([a-z])$/);
+  if (m) { const flip = {">":"<","<":">",">=":"<=","<=":">="}; const v = safeEval(m[1]); if (v===null) return null; return { op: flip[m[2]], value: v }; }
+  return null;
+}
+function compareInequality(a,b,tol) {
+  const pa = parseInequality(a), pb = parseInequality(b);
+  if (!pa || !pb) return false;
+  return pa.op === pb.op && Math.abs(pa.value - pb.value) <= tol;
+}
+function parseTuple(str) {
+  const s = String(str).trim();
+  if (!s.startsWith("(") || !s.endsWith(")")) return null;
+  const inner = s.slice(1,-1);
+  if (!inner.trim()) return null;
+  const parts = inner.split(",").map(p => safeEval(p.trim()));
+  if (parts.some(v => v===null)) return null;
+  return parts;
+}
+function compareTuple(a,b,tol) {
+  const ta = parseTuple(a), tb = parseTuple(b);
+  if (!ta || !tb || ta.length !== tb.length) return false;
+  return ta.every((v,i)=>Math.abs(v-tb[i])<=tol);
+}
+function gradeShortAnswer(submitted, correct, tol) {
+  const a = String(submitted ?? "").trim();
+  const b = String(correct ?? "").trim();
+  if (!a || !b) return false;
+  const ineqRe = /[<>≤≥]/;
+  if (ineqRe.test(a) || ineqRe.test(b)) return compareInequality(a,b,tol);
+  if (a.startsWith("(") || b.startsWith("(")) return compareTuple(a,b,tol);
+  const av = safeEval(a), bv = safeEval(b);
+  if (av===null || bv===null) return false;
+  if (!isFinite(av) || !isFinite(bv)) return av===bv;
+  return Math.abs(av-bv) <= tol;
+}
+function gradeQuestion(q, submitted) {
+  if (q.type === 'mc') return Number(submitted) === Number(q.correct_choice);
+  return gradeShortAnswer(submitted, q.correct_value, q.tolerance ?? 0.001);
+}
+
+// =========================================================
+// 화면 전환 / 상태
+// =========================================================
+let currentStudent = null; // {id, name}
+let currentClassId = null;
+let currentWorksheet = null; // {id, title, questions:[...]}
+let answers = {};
+
+function showScreen(id) {
+  ['screenLogin','screenList','screenQuiz'].forEach(s => {
+    document.getElementById(s).classList.toggle('hidden', s !== id);
+  });
+}
+
+async function loadClasses() {
+  const { data, error } = await db.from('classes').select('*').order('name');
+  const sel = document.getElementById('classSelect');
+  sel.innerHTML = '<option value="">반 선택</option>';
+  (data || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id; opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+}
+
+async function loadStudentsOfClass(classId) {
+  const sel = document.getElementById('studentSelect');
+  sel.innerHTML = '<option value="">이름 선택</option>';
+  sel.disabled = true;
+  if (!classId) return;
+  const { data } = await db
+    .from('student_classes')
+    .select('student_id, students(id, name)')
+    .eq('class_id', classId);
+  (data || [])
+    .map(r => r.students).filter(Boolean)
+    .sort((a,b)=>a.name.localeCompare(b.name))
+    .forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id; opt.textContent = s.name;
+      sel.appendChild(opt);
+    });
+  sel.disabled = false;
+}
+
+document.getElementById('classSelect').addEventListener('change', (e) => {
+  currentClassId = e.target.value || null;
+  loadStudentsOfClass(currentClassId);
+  document.getElementById('loginBtn').disabled = true;
+});
+document.getElementById('studentSelect').addEventListener('change', (e) => {
+  document.getElementById('loginBtn').disabled = !e.target.value;
+});
+document.getElementById('loginBtn').addEventListener('click', () => {
+  const sel = document.getElementById('studentSelect');
+  currentStudent = { id: sel.value, name: sel.options[sel.selectedIndex].textContent };
+  document.getElementById('headerSub').textContent = currentStudent.name + '님';
+  showScreen('screenList');
+  loadWorksheetList();
+});
+document.getElementById('logoutLink').addEventListener('click', () => {
+  currentStudent = null;
+  showScreen('screenLogin');
+});
+document.getElementById('backToList').addEventListener('click', () => {
+  showScreen('screenList');
+  loadWorksheetList();
+});
+
+async function loadWorksheetList() {
+  const listEl = document.getElementById('worksheetList');
+  const noneEl = document.getElementById('noWorksheet');
+  listEl.innerHTML = '';
+
+  const { data: wc } = await db
+    .from('worksheet_classes')
+    .select('worksheet_id, worksheets(id, title)')
+    .eq('class_id', currentClassId);
+
+  const worksheets = (wc || []).map(r => r.worksheets).filter(Boolean);
+  if (worksheets.length === 0) { noneEl.classList.remove('hidden'); return; }
+  noneEl.classList.add('hidden');
+
+  const ids = worksheets.map(w => w.id);
+  const { data: attempts } = await db
+    .from('attempts')
+    .select('worksheet_id, attempt_no, passed')
+    .eq('student_id', currentStudent.id)
+    .in('worksheet_id', ids);
+
+  worksheets.forEach(w => {
+    const rel = (attempts || []).filter(a => a.worksheet_id === w.id);
+    const count = rel.length;
+    const passed = rel.some(a => a.passed);
+    const div = document.createElement('div');
+    div.className = 'ws-item';
+    let statusHtml = '<span class="ws-status status-new">아직 안 품</span>';
+    if (passed) statusHtml = `<span class="ws-status status-pass">통과 · ${count}회</span>`;
+    else if (count > 0) statusHtml = `<span class="ws-status status-progress">${count}회 시도 중</span>`;
+    div.innerHTML = `<span class="ws-title">${w.title}</span>${statusHtml}`;
+    div.addEventListener('click', () => openWorksheet(w.id, w.title));
+    listEl.appendChild(div);
+  });
+}
+
+async function openWorksheet(id, title) {
+  const { data: questions } = await db
+    .from('questions')
+    .select('*')
+    .eq('worksheet_id', id)
+    .order('question_no');
+
+  currentWorksheet = { id, title, questions: questions || [] };
+  answers = {};
+
+  const { count } = await db
+    .from('attempts')
+    .select('id', { count: 'exact', head: true })
+    .eq('student_id', currentStudent.id)
+    .eq('worksheet_id', id);
+
+  document.getElementById('quizTitle').textContent = title;
+  document.getElementById('attemptBadge').textContent = `${(count ?? 0) + 1}차 시도`;
+  renderQuizForm();
+  document.getElementById('quizError').classList.add('hidden');
+  showScreen('screenQuiz');
+}
+
+const SYMBOL_BUTTONS = [
+  { label:'√', insert:'√()', back:1 },
+  { label:'log', insert:'log(,)', back:4 },
+  { label:'/', insert:'/', back:0 },
+  { label:'π', insert:'π', back:0 },
+  { label:'e', insert:'e', back:0 },
+  { label:'∞', insert:'∞', back:0 },
+  { label:'^', insert:'^', back:0 },
+  { label:'>', insert:'>', back:0 },
+  { label:'<', insert:'<', back:0 },
+  { label:'≥', insert:'≥', back:0 },
+  { label:'≤', insert:'≤', back:0 },
+  { label:'| |', insert:'||', back:1 },
+];
+
+function renderQuizForm() {
+  const form = document.getElementById('quizForm');
+  form.innerHTML = '';
+  currentWorksheet.questions.forEach(q => {
+    const card = document.createElement('div');
+    card.className = 'q-card';
+    const qno = document.createElement('div');
+    qno.className = 'q-no';
+    qno.textContent = q.question_no + '번';
+    card.appendChild(qno);
+
+    if (q.type === 'mc') {
+      const row = document.createElement('div');
+      row.className = 'choice-row';
+      for (let n = 1; n <= 5; n++) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'choice-btn';
+        btn.textContent = n;
+        btn.addEventListener('click', () => {
+          answers[q.id] = n;
+          row.querySelectorAll('.choice-btn').forEach(b => b.classList.remove('selected'));
+          btn.classList.add('selected');
+        });
+        row.appendChild(btn);
+      }
+      card.appendChild(row);
+    } else {
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.placeholder = '답을 입력하세요';
+      input.addEventListener('input', () => { answers[q.id] = input.value; });
+      card.appendChild(input);
+
+      const symRow = document.createElement('div');
+      symRow.className = 'symbol-row';
+      SYMBOL_BUTTONS.forEach(btn => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'symbol-btn';
+        b.textContent = btn.label;
+        b.addEventListener('click', () => {
+          const start = input.selectionStart ?? input.value.length;
+          const end = input.selectionEnd ?? input.value.length;
+          const next = input.value.slice(0,start) + btn.insert + input.value.slice(end);
+          input.value = next;
+          answers[q.id] = next;
+          const pos = start + btn.insert.length - btn.back;
+          input.focus();
+          input.setSelectionRange(pos,pos);
+        });
+        symRow.appendChild(b);
+      });
+      card.appendChild(symRow);
+    }
+    form.appendChild(card);
+  });
+}
+
+document.getElementById('submitBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('quizError');
+  errEl.classList.add('hidden');
+
+  const unanswered = currentWorksheet.questions.some(q => answers[q.id] === undefined || answers[q.id] === '');
+  if (unanswered) {
+    errEl.textContent = '모든 문항에 답을 입력해주세요.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  let wrongCount = 0;
+  const results = currentWorksheet.questions.map(q => {
+    const ok = gradeQuestion(q, answers[q.id]);
+    if (!ok) wrongCount++;
+    return { question_id: q.id, submitted_value: String(answers[q.id]), is_correct: ok };
+  });
+
+  const { count } = await db
+    .from('attempts')
+    .select('id', { count: 'exact', head: true })
+    .eq('student_id', currentStudent.id)
+    .eq('worksheet_id', currentWorksheet.id);
+  const attemptNo = (count ?? 0) + 1;
+  const passed = wrongCount === 0;
+
+  const { data: attempt, error } = await db
+    .from('attempts')
+    .insert({ student_id: currentStudent.id, worksheet_id: currentWorksheet.id, attempt_no: attemptNo, wrong_count: wrongCount, passed })
+    .select().single();
+
+  if (error) {
+    errEl.textContent = '채점 중 오류가 발생했어요. 다시 시도해주세요.';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  await db.from('attempt_answers').insert(
+    results.map(r => ({ ...r, attempt_id: attempt.id }))
+  );
+
+  showResult(wrongCount, passed, attemptNo);
+});
+
+function showResult(wrongCount, passed, attemptNo) {
+  const overlay = document.getElementById('resultOverlay');
+  const icon = document.getElementById('resultIcon');
+  const title = document.getElementById('resultTitle');
+  const sub = document.getElementById('resultSub');
+  const btn = document.getElementById('resultBtn');
+
+  if (passed) {
+    icon.textContent = '🎉';
+    title.textContent = '전부 맞았어요!';
+    sub.textContent = `${attemptNo}차 시도만에 통과했습니다.`;
+    btn.textContent = '목록으로';
+    btn.onclick = () => { overlay.classList.remove('show'); showScreen('screenList'); loadWorksheetList(); };
+  } else {
+    icon.textContent = '✏️';
+    title.textContent = `총 ${wrongCount}문항 틀렸어요`;
+    sub.textContent = '어떤 문항인지는 알려드리지 않아요. 처음부터 다시 풀어봐요.';
+    btn.textContent = '다시 풀기';
+    btn.onclick = () => {
+      overlay.classList.remove('show');
+      answers = {};
+      openWorksheet(currentWorksheet.id, currentWorksheet.title);
+    };
+  }
+  overlay.classList.add('show');
+}
+
+loadClasses();
+</script>
+</body>
+</html>
