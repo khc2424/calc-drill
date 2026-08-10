@@ -1,6 +1,7 @@
 -- =========================================
 --  계산 반복 학습 시스템 — Supabase 설정 SQL
 --  Supabase 대시보드 > SQL Editor 에서 전체 실행하세요.
+--  (이미 STEP 1을 실행한 적이 있다면 아래 "기존 DB 업데이트용" SQL만 실행하면 됩니다)
 -- =========================================
 
 create extension if not exists "pgcrypto";
@@ -11,17 +12,12 @@ create table if not exists classes (
   created_at timestamptz default now()
 );
 
+-- 학생 (한 학생 = 반 1개, class_id로 소속)
 create table if not exists students (
   id uuid default gen_random_uuid() primary key,
   name text not null,
+  class_id uuid references classes(id) on delete set null,
   created_at timestamptz default now()
-);
-
--- 학생-반 다대다 (한 학생이 여러 반 소속 가능)
-create table if not exists student_classes (
-  student_id uuid references students(id) on delete cascade,
-  class_id uuid references classes(id) on delete cascade,
-  primary key (student_id, class_id)
 );
 
 -- 실수 유형 태그
@@ -50,7 +46,7 @@ create table if not exists questions (
   tag_id uuid references tags(id) on delete set null
 );
 
--- 학습지 배정 (어느 반에 배정됐는지)
+-- 학습지 배정 (어느 반에 배정됐는지, 학습지는 여러 반에 배정 가능)
 create table if not exists worksheet_classes (
   worksheet_id uuid references worksheets(id) on delete cascade,
   class_id uuid references classes(id) on delete cascade,
@@ -79,7 +75,6 @@ create table if not exists attempt_answers (
 
 alter table classes enable row level security;
 alter table students enable row level security;
-alter table student_classes enable row level security;
 alter table tags enable row level security;
 alter table worksheets enable row level security;
 alter table questions enable row level security;
@@ -87,12 +82,26 @@ alter table worksheet_classes enable row level security;
 alter table attempts enable row level security;
 alter table attempt_answers enable row level security;
 
+drop policy if exists "allow_all_classes" on classes;
+drop policy if exists "allow_all_students" on students;
+drop policy if exists "allow_all_tags" on tags;
+drop policy if exists "allow_all_worksheets" on worksheets;
+drop policy if exists "allow_all_questions" on questions;
+drop policy if exists "allow_all_worksheet_classes" on worksheet_classes;
+drop policy if exists "allow_all_attempts" on attempts;
+drop policy if exists "allow_all_attempt_answers" on attempt_answers;
+
 create policy "allow_all_classes" on classes for all using (true) with check (true);
 create policy "allow_all_students" on students for all using (true) with check (true);
-create policy "allow_all_student_classes" on student_classes for all using (true) with check (true);
 create policy "allow_all_tags" on tags for all using (true) with check (true);
 create policy "allow_all_worksheets" on worksheets for all using (true) with check (true);
 create policy "allow_all_questions" on questions for all using (true) with check (true);
 create policy "allow_all_worksheet_classes" on worksheet_classes for all using (true) with check (true);
 create policy "allow_all_attempts" on attempts for all using (true) with check (true);
 create policy "allow_all_attempt_answers" on attempt_answers for all using (true) with check (true);
+
+-- =========================================
+--  기존 DB 업데이트용 (이미 예전 버전을 설치했다면 이 부분만 실행해도 됩니다)
+-- =========================================
+alter table students add column if not exists class_id uuid references classes(id) on delete set null;
+drop table if exists student_classes cascade;

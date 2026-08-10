@@ -107,8 +107,8 @@
       <div class="card">
         <div class="card-title">학생 등록</div>
         <input type="text" id="newStudentName" placeholder="학생 이름" class="mb-2">
-        <label>소속 반 (여러 개 선택 가능)</label>
-        <div id="newStudentClassChips" class="mb-3"></div>
+        <label>소속 반</label>
+        <select id="newStudentClassSelect" class="mb-3"><option value="">반 선택</option></select>
         <button class="btn btn-primary" id="addStudentBtn">학생 등록</button>
       </div>
       <div class="card">
@@ -139,8 +139,8 @@
 // =========================================================
 // 설정 — 본인 값으로 교체하세요
 // =========================================================
-const SUPABASE_URL = 'https://scwoijhooabnluplvmxl.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjd29pamhvb2Fibmx1cGx2bXhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MjgxOTAsImV4cCI6MjEwMTQwNDE5MH0.rNZM_kty-FMpiTobzNchv38OqLpNKx_WdD8-oJGPUPA';
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
 const TEACHER_PW   = '2424'; // 선생님 페이지 접속 비밀번호 (원하는 값으로 변경)
 
 const { createClient } = supabase;
@@ -200,7 +200,7 @@ async function loadClasses() {
   const { data } = await db.from('classes').select('*').order('created_at');
   allClasses = data || [];
   renderClassList();
-  renderNewStudentClassChips();
+  renderNewStudentClassSelect();
 }
 function renderClassList() {
   const el = document.getElementById('classList');
@@ -239,53 +239,61 @@ document.getElementById('addClassBtn').addEventListener('click', async () => {
 // =========================================================
 // 학생 관리
 // =========================================================
-let newStudentSelectedClasses = [];
-function renderNewStudentClassChips() {
-  const el = document.getElementById('newStudentClassChips');
-  el.innerHTML = '';
+function renderNewStudentClassSelect() {
+  const sel = document.getElementById('newStudentClassSelect');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">반 선택</option>';
   allClasses.forEach(c => {
-    const chip = document.createElement('span');
-    chip.className = 'chip' + (newStudentSelectedClasses.includes(c.id) ? ' selected' : '');
-    chip.textContent = c.name;
-    chip.onclick = () => {
-      newStudentSelectedClasses = newStudentSelectedClasses.includes(c.id)
-        ? newStudentSelectedClasses.filter(x => x !== c.id)
-        : [...newStudentSelectedClasses, c.id];
-      renderNewStudentClassChips();
-    };
-    el.appendChild(chip);
+    const opt = document.createElement('option');
+    opt.value = c.id; opt.textContent = c.name;
+    sel.appendChild(opt);
   });
+  if (prev) sel.value = prev;
 }
 document.getElementById('addStudentBtn').addEventListener('click', async () => {
   const nameInput = document.getElementById('newStudentName');
+  const classSel = document.getElementById('newStudentClassSelect');
   if (!nameInput.value.trim()) return;
-  const { data: student, error } = await db.from('students').insert({ name: nameInput.value.trim() }).select().single();
+  const { error } = await db.from('students').insert({
+    name: nameInput.value.trim(),
+    class_id: classSel.value || null
+  });
   if (error) { alert('등록 실패: ' + error.message); return; }
-  if (newStudentSelectedClasses.length > 0) {
-    await db.from('student_classes').insert(newStudentSelectedClasses.map(class_id => ({ student_id: student.id, class_id })));
-  }
   nameInput.value = '';
-  newStudentSelectedClasses = [];
-  renderNewStudentClassChips();
+  classSel.value = '';
   loadStudentList();
 });
 
 async function loadStudentList() {
   const { data } = await db
     .from('students')
-    .select('id, name, student_classes(class_id, classes(id, name))')
+    .select('id, name, class_id, classes(id, name)')
     .order('created_at');
   const el = document.getElementById('studentList');
   el.innerHTML = '';
   (data || []).forEach(s => {
-    const studentClassIds = (s.student_classes || []).map(sc => sc.class_id);
     const div = document.createElement('div');
     div.className = 'list-item';
-    div.style.flexDirection = 'column';
-    div.style.alignItems = 'stretch';
-    const top = document.createElement('div');
-    top.style.display = 'flex'; top.style.justifyContent = 'space-between'; top.style.marginBottom = '8px';
-    top.innerHTML = `<span class="name">${s.name}</span>`;
+    div.innerHTML = `<span class="name">${s.name}</span>`;
+
+    const right = document.createElement('div');
+    right.style.display = 'flex'; right.style.alignItems = 'center'; right.style.gap = '6px';
+
+    const classSel = document.createElement('select');
+    classSel.innerHTML = '<option value="">반 없음</option>';
+    allClasses.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.id; opt.textContent = c.name;
+      if (s.class_id === c.id) opt.selected = true;
+      classSel.appendChild(opt);
+    });
+    classSel.onchange = async () => {
+      await db.from('students').update({ class_id: classSel.value || null }).eq('id', s.id);
+      loadStudentList();
+    };
+    right.appendChild(classSel);
+
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-danger'; delBtn.textContent = '삭제';
     delBtn.onclick = async () => {
@@ -293,25 +301,9 @@ async function loadStudentList() {
       await db.from('students').delete().eq('id', s.id);
       loadStudentList();
     };
-    top.appendChild(delBtn);
-    div.appendChild(top);
+    right.appendChild(delBtn);
 
-    const chipsRow = document.createElement('div');
-    allClasses.forEach(c => {
-      const chip = document.createElement('span');
-      chip.className = 'chip' + (studentClassIds.includes(c.id) ? ' selected' : '');
-      chip.textContent = c.name;
-      chip.onclick = async () => {
-        if (studentClassIds.includes(c.id)) {
-          await db.from('student_classes').delete().eq('student_id', s.id).eq('class_id', c.id);
-        } else {
-          await db.from('student_classes').insert({ student_id: s.id, class_id: c.id });
-        }
-        loadStudentList();
-      };
-      chipsRow.appendChild(chip);
-    });
-    div.appendChild(chipsRow);
+    div.appendChild(right);
     el.appendChild(div);
   });
 }
@@ -623,8 +615,8 @@ async function loadResultStudentOptions() {
 
   let students;
   if (classId) {
-    const { data } = await db.from('student_classes').select('student_id, students(id, name)').eq('class_id', classId);
-    students = (data || []).map(r => r.students).filter(Boolean);
+    const { data } = await db.from('students').select('id, name').eq('class_id', classId);
+    students = data || [];
   } else {
     const { data } = await db.from('students').select('id, name');
     students = data || [];

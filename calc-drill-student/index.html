@@ -123,8 +123,8 @@
 // =========================================================
 // Supabase 연결 정보 — 반드시 본인 프로젝트 값으로 교체하세요
 // =========================================================
-const SUPABASE_URL = 'https://scwoijhooabnluplvmxl.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNjd29pamhvb2Fibmx1cGx2bXhsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU4MjgxOTAsImV4cCI6MjEwMTQwNDE5MH0.rNZM_kty-FMpiTobzNchv38OqLpNKx_WdD8-oJGPUPA';
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -238,12 +238,11 @@ async function loadStudentsOfClass(classId) {
   sel.disabled = true;
   if (!classId) return;
   const { data } = await db
-    .from('student_classes')
-    .select('student_id, students(id, name)')
-    .eq('class_id', classId);
+    .from('students')
+    .select('id, name')
+    .eq('class_id', classId)
+    .order('name');
   (data || [])
-    .map(r => r.students).filter(Boolean)
-    .sort((a,b)=>a.name.localeCompare(b.name))
     .forEach(s => {
       const opt = document.createElement('option');
       opt.value = s.id; opt.textContent = s.name;
