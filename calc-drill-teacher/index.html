@@ -82,7 +82,6 @@
     <div class="tab active" data-tab="worksheets">학습지 관리</div>
     <div class="tab" data-tab="results">결과 보기</div>
     <div class="tab" data-tab="students">학생 관리</div>
-    <div class="tab" data-tab="classes">반 관리</div>
   </div>
 
   <div class="container">
@@ -93,6 +92,14 @@
         <div class="card">
           <div class="card-title">학습지 목록</div>
           <button class="btn btn-primary mb-3" id="newWsBtn">+ 새 학습지</button>
+          <div class="grid2 mb-3">
+            <select id="wsFilterClass"><option value="">전체 반</option></select>
+            <select id="wsSortMode">
+              <option value="date_desc">최신순</option>
+              <option value="date_asc">오래된순</option>
+              <option value="class">반별로 묶기</option>
+            </select>
+          </div>
           <div id="wsList"></div>
         </div>
       </div>
@@ -111,32 +118,22 @@
       </div>
     </div>
 
-    <!-- 학생 관리 -->
+    <!-- 학생 관리 (반 관리 통합) -->
     <div id="tabStudents" class="hidden">
       <div class="card">
         <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
-          <span>학생 목록</span>
+          <span>반 목록</span>
+          <button class="btn btn-secondary" id="addClassBtn">+ 반 추가</button>
+        </div>
+        <div id="classChipsRow" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px"></div>
+        <div id="classActionsRow" style="display:flex;gap:8px"></div>
+      </div>
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span id="studentListTitle">학생 목록</span>
           <button class="btn btn-primary" id="openStudentAddBtn">+ 학생 추가</button>
         </div>
-        <table>
-          <thead><tr><th>이름</th><th>반</th><th>연락처</th><th>관리</th></tr></thead>
-          <tbody id="studentTableBody"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- 반 관리 -->
-    <div id="tabClasses" class="hidden">
-      <div class="card">
-        <div class="card-title">반 추가</div>
-        <div class="row">
-          <input type="text" id="newClassName" placeholder="반 이름 (예: 월수반)">
-          <button class="btn btn-primary" id="addClassBtn">추가</button>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-title">반 목록</div>
-        <div id="classList"></div>
+        <div id="studentListArea"></div>
       </div>
     </div>
 
@@ -154,12 +151,29 @@
       <label>반</label>
       <select id="stuClassInput" class="mb-3"><option value="">반 없음</option></select>
       <label>연락처</label>
-      <input type="text" id="stuPhoneInput" placeholder="010-0000-0000">
+      <input type="text" id="stuPhoneInput" placeholder="010-0000-0000" class="mb-3">
+      <label>학번 (로그인 아이디) *</label>
+      <input type="text" id="stuNoInput" placeholder="예: 1" class="mb-3">
+      <label>비밀번호 (기본: 전화번호 뒤 4자리)</label>
+      <input type="text" id="stuPwInput" placeholder="예: 1234">
+      <div style="font-size:11px;color:#999;margin-top:4px">학생이 처음 로그인하면 비밀번호 변경을 요청받습니다.</div>
       <div class="err hidden" id="stuModalErr"></div>
     </div>
     <div class="modal-ft">
       <button class="btn btn-secondary" id="studentModalCancelBtn">취소</button>
       <button class="btn btn-primary" id="studentModalSaveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 배정 학생(명단) 수정 모달 -->
+<div class="modal-ov" id="rosterModal">
+  <div class="modal-bx" style="max-width:420px">
+    <div class="modal-hd"><b>배정 학생 수정</b><button id="rosterModalCloseBtn">&times;</button></div>
+    <div class="modal-bd" id="rosterModalBody"></div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="rosterModalCancelBtn">취소</button>
+      <button class="btn btn-primary" id="rosterModalSaveBtn">저장</button>
     </div>
   </div>
 </div>
@@ -204,7 +218,7 @@ document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['Worksheets','Results','Students','Classes'].forEach(name => {
+    ['Worksheets','Results','Students'].forEach(name => {
       document.getElementById('tab' + name).classList.toggle('hidden', 'tab' + name !== 'tab' + capitalize(tab.dataset.tab));
     });
   });
@@ -214,9 +228,10 @@ function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 let allClasses = [];
 let allTags = [];
 let allStudents = [];
+let selectedClassId = ''; // '' = 전체, '__none__' = 반 없음, 그 외 = class id
 
-function initAll() {
-  loadClasses();
+async function initAll() {
+  await loadClasses();
   loadTags();
   loadWorksheetsList();
   loadStudentList();
@@ -224,51 +239,67 @@ function initAll() {
 }
 
 // =========================================================
-// 반 관리
+// 학생 관리 (반 관리 통합)
 // =========================================================
 async function loadClasses() {
   const { data } = await db.from('classes').select('*').order('created_at');
   allClasses = data || [];
-  renderClassList();
+  renderClassChipsRow();
   renderNewStudentClassSelect();
 }
-function renderClassList() {
-  const el = document.getElementById('classList');
-  el.innerHTML = '';
-  allClasses.forEach(c => {
-    const div = document.createElement('div');
-    div.className = 'list-item';
-    div.innerHTML = `<span class="name">${c.name}</span>`;
-    const btns = document.createElement('div');
-    const renameBtn = document.createElement('button');
-    renameBtn.className = 'btn btn-secondary'; renameBtn.textContent = '이름변경'; renameBtn.style.marginRight='6px';
-    renameBtn.onclick = async () => {
-      const name = prompt('새 반 이름', c.name);
-      if (name && name.trim()) { await db.from('classes').update({name:name.trim()}).eq('id', c.id); loadClasses(); }
+
+function renderClassChipsRow() {
+  const row = document.getElementById('classChipsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  const items = [{ id: '', name: '전체' }, ...allClasses, { id: '__none__', name: '반 없음' }];
+  items.forEach(c => {
+    const chip = document.createElement('span');
+    chip.className = 'chip' + (selectedClassId === c.id ? ' selected' : '');
+    chip.textContent = c.name;
+    chip.onclick = () => {
+      selectedClassId = c.id;
+      renderClassChipsRow();
+      renderClassActionsRow();
+      renderStudentListArea();
     };
-    const delBtn = document.createElement('button');
-    delBtn.className = 'btn btn-danger'; delBtn.textContent = '삭제';
-    delBtn.onclick = async () => {
-      if (!confirm('이 반을 삭제할까요?')) return;
-      await db.from('classes').delete().eq('id', c.id);
-      loadClasses();
-    };
-    btns.appendChild(renameBtn); btns.appendChild(delBtn);
-    div.appendChild(btns);
-    el.appendChild(div);
+    row.appendChild(chip);
   });
+  renderClassActionsRow();
 }
+
+function renderClassActionsRow() {
+  const row = document.getElementById('classActionsRow');
+  if (!row) return;
+  row.innerHTML = '';
+  if (!selectedClassId || selectedClassId === '__none__') return;
+  const cls = allClasses.find(c => c.id === selectedClassId);
+  if (!cls) return;
+  const renameBtn = document.createElement('button');
+  renameBtn.className = 'btn btn-secondary'; renameBtn.textContent = '이 반 이름변경';
+  renameBtn.onclick = async () => {
+    const name = prompt('새 반 이름', cls.name);
+    if (name && name.trim()) { await db.from('classes').update({ name: name.trim() }).eq('id', cls.id); loadClasses(); }
+  };
+  const delBtn = document.createElement('button');
+  delBtn.className = 'btn btn-danger'; delBtn.textContent = '이 반 삭제';
+  delBtn.onclick = async () => {
+    if (!confirm(cls.name + ' 반을 삭제할까요? (소속 학생은 반 없음으로 남습니다)')) return;
+    await db.from('classes').delete().eq('id', cls.id);
+    selectedClassId = '';
+    loadClasses();
+    loadStudentList();
+  };
+  row.appendChild(renameBtn); row.appendChild(delBtn);
+}
+
 document.getElementById('addClassBtn').addEventListener('click', async () => {
-  const input = document.getElementById('newClassName');
-  if (!input.value.trim()) return;
-  await db.from('classes').insert({ name: input.value.trim() });
-  input.value = '';
+  const name = prompt('새 반 이름 (예: 월수반)');
+  if (!name || !name.trim()) return;
+  await db.from('classes').insert({ name: name.trim() });
   loadClasses();
 });
 
-// =========================================================
-// 학생 관리
-// =========================================================
 function renderNewStudentClassSelect() {
   const sel = document.getElementById('stuClassInput');
   if (!sel) return;
@@ -287,8 +318,12 @@ function openStudentModal(student) {
   document.getElementById('studentModalTitle').textContent = student ? '학생 수정' : '학생 추가';
   document.getElementById('stuEditId').value = student ? student.id : '';
   document.getElementById('stuNameInput').value = student ? student.name : '';
-  document.getElementById('stuClassInput').value = student ? (student.class_id || '') : '';
+  const defaultClass = selectedClassId && selectedClassId !== '__none__' ? selectedClassId : '';
+  document.getElementById('stuClassInput').value = student ? (student.class_id || '') : defaultClass;
   document.getElementById('stuPhoneInput').value = student ? (student.phone || '') : '';
+  document.getElementById('stuNoInput').value = student ? (student.student_no || '') : '';
+  document.getElementById('stuPwInput').value = student ? (student.password || '') : '';
+  document.getElementById('studentModal').dataset.origPw = student ? (student.password || '') : '';
   document.getElementById('studentModal').classList.add('show');
 }
 function closeStudentModal() {
@@ -302,11 +337,22 @@ document.getElementById('studentModalSaveBtn').addEventListener('click', async (
   const name = document.getElementById('stuNameInput').value.trim();
   const classId = document.getElementById('stuClassInput').value || null;
   const phone = document.getElementById('stuPhoneInput').value.trim();
+  const studentNo = document.getElementById('stuNoInput').value.trim();
+  let password = document.getElementById('stuPwInput').value.trim();
   const errEl = document.getElementById('stuModalErr');
   errEl.classList.add('hidden');
   if (!name) { errEl.textContent = '이름을 입력해주세요'; errEl.classList.remove('hidden'); return; }
+  if (!studentNo) { errEl.textContent = '학번을 입력해주세요'; errEl.classList.remove('hidden'); return; }
 
-  const payload = { name, class_id: classId, phone: phone || null };
+  if (!password) {
+    const digits = phone.replace(/[^0-9]/g, '');
+    password = digits.length >= 4 ? digits.slice(-4) : '0000';
+  }
+
+  const origPw = document.getElementById('studentModal').dataset.origPw || '';
+  const payload = { name, class_id: classId, phone: phone || null, student_no: studentNo, password };
+  if (password !== origPw) payload.must_change_password = true;
+
   const { error } = id
     ? await db.from('students').update(payload).eq('id', id)
     : await db.from('students').insert(payload);
@@ -318,17 +364,65 @@ document.getElementById('studentModalSaveBtn').addEventListener('click', async (
 async function loadStudentList() {
   const { data } = await db
     .from('students')
-    .select('id, name, class_id, phone, classes(id, name)')
+    .select('id, name, class_id, phone, student_no, password, must_change_password, classes(id, name)')
     .order('created_at');
   allStudents = data || [];
-  const tbody = document.getElementById('studentTableBody');
-  tbody.innerHTML = '';
-  (data || []).forEach(s => {
-    const tr = document.createElement('tr');
-    const className = s.classes ? s.classes.name : '-';
-    tr.innerHTML = `<td>${s.name}</td><td>${className}</td><td>${s.phone || '-'}</td>`;
-    const tdActions = document.createElement('td');
-    tdActions.className = 'table-actions';
+  renderStudentListArea();
+}
+
+function renderStudentListArea() {
+  const el = document.getElementById('studentListArea');
+  if (!el) return;
+  const titleEl = document.getElementById('studentListTitle');
+  let list = allStudents;
+  if (selectedClassId === '__none__') list = allStudents.filter(s => !s.class_id);
+  else if (selectedClassId) list = allStudents.filter(s => s.class_id === selectedClassId);
+  if (titleEl) {
+    const label = selectedClassId === '' ? '전체'
+      : selectedClassId === '__none__' ? '반 없음'
+      : (allClasses.find(c => c.id === selectedClassId)?.name || '');
+    titleEl.textContent = '학생 목록 (' + label + ' · ' + list.length + '명)';
+  }
+  el.innerHTML = '';
+  if (!list.length) {
+    el.innerHTML = '<div style="font-size:13px;color:#999;padding:8px 0">학생이 없습니다.</div>';
+    return;
+  }
+  list.forEach(s => {
+    const div = document.createElement('div');
+    div.className = 'list-item';
+    div.style.flexDirection = 'column';
+    div.style.alignItems = 'stretch';
+
+    const top = document.createElement('div');
+    top.style.display = 'flex'; top.style.justifyContent = 'space-between'; top.style.alignItems = 'center';
+    const className = s.classes ? s.classes.name : '반 없음';
+    top.innerHTML = `<span class="name">${s.name}</span><span class="meta">${className}</span>`;
+    div.appendChild(top);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.style.marginTop = '4px';
+    const pwSpan = document.createElement('span');
+    pwSpan.textContent = '••••';
+    const pwToggle = document.createElement('button');
+    pwToggle.className = 'link-danger';
+    pwToggle.style.color = '#3C1E1E';
+    pwToggle.textContent = '비밀번호 보기';
+    let shown = false;
+    pwToggle.onclick = () => {
+      shown = !shown;
+      pwSpan.textContent = shown ? (s.password || '-') : '••••';
+      pwToggle.textContent = shown ? '숨기기' : '비밀번호 보기';
+    };
+    meta.textContent = `학번 ${s.student_no || '-'} · 연락처 ${s.phone || '-'} · 비밀번호 `;
+    meta.appendChild(pwSpan);
+    meta.appendChild(document.createTextNode(' '));
+    meta.appendChild(pwToggle);
+    div.appendChild(meta);
+
+    const btnRow = document.createElement('div');
+    btnRow.style.marginTop = '8px'; btnRow.style.display = 'flex'; btnRow.style.gap = '6px';
     const editBtn = document.createElement('button');
     editBtn.className = 'btn btn-secondary'; editBtn.textContent = '수정';
     editBtn.onclick = () => openStudentModal(s);
@@ -339,9 +433,10 @@ async function loadStudentList() {
       await db.from('students').delete().eq('id', s.id);
       loadStudentList();
     };
-    tdActions.appendChild(editBtn); tdActions.appendChild(delBtn);
-    tr.appendChild(tdActions);
-    tbody.appendChild(tr);
+    btnRow.appendChild(editBtn); btnRow.appendChild(delBtn);
+    div.appendChild(btnRow);
+
+    el.appendChild(div);
   });
 }
 
@@ -361,20 +456,80 @@ async function addTag(name) {
 // =========================================================
 // 학습지 관리
 // =========================================================
+let allWorksheetsData = [];
+
 async function loadWorksheetsList() {
-  const { data } = await db.from('worksheets').select('*, questions(id)').order('created_at', { ascending:false });
+  const { data } = await db
+    .from('worksheets')
+    .select('*, questions(id), worksheet_students(student_id, students(id, name, class_id, classes(id, name)))')
+    .order('created_at', { ascending: false });
+  allWorksheetsData = data || [];
+  populateWsFilterClass();
+  renderWorksheetsList();
+}
+
+function populateWsFilterClass() {
+  const sel = document.getElementById('wsFilterClass');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">전체 반</option>';
+  allClasses.forEach(c => {
+    const opt = document.createElement('option'); opt.value = c.id; opt.textContent = c.name;
+    sel.appendChild(opt);
+  });
+  if (prev) sel.value = prev;
+}
+document.getElementById('wsFilterClass').addEventListener('change', renderWorksheetsList);
+document.getElementById('wsSortMode').addEventListener('change', renderWorksheetsList);
+
+function worksheetMeta(w) {
+  const students = (w.worksheet_students || []).map(x => x.students).filter(Boolean);
+  const classNames = [...new Set(students.map(s => s.classes?.name).filter(Boolean))];
+  const studentNames = students.map(s => s.name);
+  return { students, classNames, studentNames };
+}
+
+function renderWorksheetsList() {
   const el = document.getElementById('wsList');
+  const filterClass = document.getElementById('wsFilterClass').value;
+  const sortMode = document.getElementById('wsSortMode').value;
   el.innerHTML = '';
-  (data || []).forEach(w => {
+
+  let list = allWorksheetsData.filter(w => {
+    if (!filterClass) return true;
+    const { students } = worksheetMeta(w);
+    return students.some(s => s.class_id === filterClass);
+  });
+
+  const renderRow = (w, container) => {
+    const { classNames, studentNames } = worksheetMeta(w);
+    const dateStr = w.created_at ? String(w.created_at).slice(0, 10) : '-';
     const div = document.createElement('div');
     div.className = 'list-item';
-    div.innerHTML = `<span class="name">${w.title} <span class="meta">(${(w.questions||[]).length}문항)</span></span>`;
+    div.style.flexDirection = 'column';
+    div.style.alignItems = 'stretch';
+
+    const top = document.createElement('div');
+    top.style.display = 'flex'; top.style.justifyContent = 'space-between'; top.style.alignItems = 'center';
+    top.innerHTML = `<span class="name">${w.title} <span class="meta">(${(w.questions || []).length}문항)</span></span>`;
+    div.appendChild(top);
+
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.style.marginTop = '4px';
+    meta.textContent = `출제일 ${dateStr} · 반 ${classNames.length ? classNames.join(', ') : '미배정'} · 학생 ${studentNames.length ? studentNames.join(', ') : '없음'}`;
+    div.appendChild(meta);
+
     const btns = document.createElement('div');
+    btns.style.marginTop = '8px'; btns.style.display = 'flex'; btns.style.gap = '6px'; btns.style.flexWrap = 'wrap';
     const editBtn = document.createElement('button');
-    editBtn.className = 'btn btn-secondary'; editBtn.textContent = '편집'; editBtn.style.marginRight = '6px';
+    editBtn.className = 'btn btn-secondary'; editBtn.textContent = '편집';
     editBtn.onclick = () => openWorksheetEditor(w.id);
+    const rosterBtn = document.createElement('button');
+    rosterBtn.className = 'btn btn-secondary'; rosterBtn.textContent = '명단 수정';
+    rosterBtn.onclick = () => openRosterModal(w.id, worksheetMeta(w).students.map(s => s.id));
     const cloneBtn = document.createElement('button');
-    cloneBtn.className = 'btn btn-secondary'; cloneBtn.textContent = '복제'; cloneBtn.style.marginRight = '6px';
+    cloneBtn.className = 'btn btn-secondary'; cloneBtn.textContent = '복제';
     cloneBtn.onclick = async () => { await cloneWorksheet(w.id); };
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-danger'; delBtn.textContent = '삭제';
@@ -383,11 +538,109 @@ async function loadWorksheetsList() {
       await db.from('worksheets').delete().eq('id', w.id);
       loadWorksheetsList();
     };
-    btns.appendChild(editBtn); btns.appendChild(cloneBtn); btns.appendChild(delBtn);
+    btns.appendChild(editBtn); btns.appendChild(rosterBtn); btns.appendChild(cloneBtn); btns.appendChild(delBtn);
     div.appendChild(btns);
-    el.appendChild(div);
+    container.appendChild(div);
+  };
+
+  if (sortMode === 'class') {
+    const groups = {};
+    list.forEach(w => {
+      const { classNames } = worksheetMeta(w);
+      const key = classNames.length ? classNames.join(', ') : '미배정';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(w);
+    });
+    Object.keys(groups).sort().forEach(key => {
+      const h = document.createElement('div');
+      h.style.fontWeight = '700'; h.style.fontSize = '13px'; h.style.margin = '10px 0 4px';
+      h.textContent = key;
+      el.appendChild(h);
+      groups[key].forEach(w => renderRow(w, el));
+    });
+  } else {
+    list = [...list].sort((a, b) => sortMode === 'date_asc'
+      ? new Date(a.created_at) - new Date(b.created_at)
+      : new Date(b.created_at) - new Date(a.created_at));
+    list.forEach(w => renderRow(w, el));
+  }
+
+  if (!list.length) el.innerHTML = '<div style="font-size:13px;color:#999;padding:8px 0">학습지가 없습니다.</div>';
+}
+
+// 명단(배정 학생)만 수정하는 모달
+let rosterWorksheetId = null;
+let rosterSelected = [];
+function openRosterModal(worksheetId, currentStudentIds) {
+  rosterWorksheetId = worksheetId;
+  rosterSelected = [...currentStudentIds];
+  renderRosterModalBody();
+  document.getElementById('rosterModal').classList.add('show');
+}
+function closeRosterModal() {
+  document.getElementById('rosterModal').classList.remove('show');
+}
+function renderRosterModalBody() {
+  const body = document.getElementById('rosterModalBody');
+  body.innerHTML = '';
+  const groups = allClasses
+    .map(c => ({ cls: c, students: allStudents.filter(s => s.class_id === c.id) }))
+    .filter(g => g.students.length > 0);
+  const noClassStudents = allStudents.filter(s => !s.class_id);
+  if (noClassStudents.length) groups.push({ cls: { id: '', name: '반 없음' }, students: noClassStudents });
+
+  if (!groups.length) {
+    body.innerHTML = '<div style="font-size:13px;color:#999">등록된 학생이 없습니다.</div>';
+    return;
+  }
+
+  groups.forEach(g => {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'mb-3';
+    const allIn = g.students.every(s => rosterSelected.includes(s.id));
+
+    const headerRow = document.createElement('div');
+    headerRow.style.display = 'flex'; headerRow.style.justifyContent = 'space-between';
+    headerRow.style.alignItems = 'center'; headerRow.style.marginBottom = '6px';
+    const label = document.createElement('b');
+    label.style.fontSize = '13px'; label.textContent = g.cls.name;
+    const toggleBtn = document.createElement('button');
+    toggleBtn.className = 'btn btn-secondary';
+    toggleBtn.style.padding = '4px 10px'; toggleBtn.style.fontSize = '12px';
+    toggleBtn.textContent = allIn ? '전체 해제' : '전체 선택';
+    toggleBtn.onclick = () => {
+      const ids = g.students.map(s => s.id);
+      rosterSelected = allIn ? rosterSelected.filter(id => !ids.includes(id)) : [...new Set([...rosterSelected, ...ids])];
+      renderRosterModalBody();
+    };
+    headerRow.appendChild(label); headerRow.appendChild(toggleBtn);
+    groupDiv.appendChild(headerRow);
+
+    const chipsRow = document.createElement('div');
+    g.students.forEach(s => {
+      const chip = document.createElement('span');
+      chip.className = 'chip' + (rosterSelected.includes(s.id) ? ' selected' : '');
+      chip.textContent = s.name;
+      chip.onclick = () => {
+        rosterSelected = rosterSelected.includes(s.id) ? rosterSelected.filter(x => x !== s.id) : [...rosterSelected, s.id];
+        renderRosterModalBody();
+      };
+      chipsRow.appendChild(chip);
+    });
+    groupDiv.appendChild(chipsRow);
+    body.appendChild(groupDiv);
   });
 }
+document.getElementById('rosterModalCloseBtn').addEventListener('click', closeRosterModal);
+document.getElementById('rosterModalCancelBtn').addEventListener('click', closeRosterModal);
+document.getElementById('rosterModalSaveBtn').addEventListener('click', async () => {
+  await db.from('worksheet_students').delete().eq('worksheet_id', rosterWorksheetId);
+  if (rosterSelected.length > 0) {
+    await db.from('worksheet_students').insert(rosterSelected.map(student_id => ({ worksheet_id: rosterWorksheetId, student_id })));
+  }
+  closeRosterModal();
+  loadWorksheetsList();
+});
 async function cloneWorksheet(id) {
   const { data: original } = await db.from('worksheets').select('*, questions(*)').eq('id', id).single();
   const { data: clone } = await db.from('worksheets').insert({ title: original.title + ' (복사본)' }).select().single();

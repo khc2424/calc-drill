@@ -65,26 +65,44 @@
 
 <div class="container">
 
-  <!-- 화면 1: 반/이름 선택 -->
+  <!-- 화면 1: 로그인 -->
   <div id="screenLogin">
     <div class="card">
-      <div class="card-title">반과 이름을 선택하세요</div>
+      <div class="card-title">학번과 비밀번호를 입력하세요</div>
       <div class="mb-3">
-        <label>반</label>
-        <select id="classSelect"><option value="">반 선택</option></select>
+        <label>학번</label>
+        <input type="text" id="loginNoInput" placeholder="학번" inputmode="numeric" autocomplete="off">
       </div>
       <div class="mb-3">
-        <label>이름</label>
-        <select id="studentSelect" disabled><option value="">먼저 반을 선택하세요</option></select>
+        <label>비밀번호</label>
+        <input type="text" id="loginPwInput" placeholder="비밀번호" inputmode="numeric" autocomplete="off">
       </div>
-      <button class="btn btn-primary" id="loginBtn" disabled>확인</button>
+      <button class="btn btn-primary" id="loginBtn">로그인</button>
+      <div id="loginError" class="error-msg hidden">학번 또는 비밀번호가 올바르지 않습니다.</div>
+    </div>
+  </div>
+
+  <!-- 화면 1-1: 최초 로그인 비밀번호 변경 -->
+  <div id="screenChangePw" class="hidden">
+    <div class="card">
+      <div class="card-title">처음 로그인하셨네요! 비밀번호를 바꿔주세요</div>
+      <div class="mb-3">
+        <label>새 비밀번호</label>
+        <input type="text" id="newPwInput" placeholder="새 비밀번호" inputmode="numeric" autocomplete="off">
+      </div>
+      <div class="mb-3">
+        <label>새 비밀번호 확인</label>
+        <input type="text" id="newPwInput2" placeholder="새 비밀번호 확인" inputmode="numeric" autocomplete="off">
+      </div>
+      <button class="btn btn-primary" id="changePwBtn">변경하고 시작하기</button>
+      <div id="changePwError" class="error-msg hidden"></div>
     </div>
   </div>
 
   <!-- 화면 2: 학습지 목록 -->
   <div id="screenList" class="hidden">
     <div class="top-bar">
-      <span class="back-link" id="logoutLink">‹ 다른 사람으로 접속</span>
+      <span class="back-link" id="logoutLink">‹ 로그아웃</span>
     </div>
     <div class="card">
       <div class="card-title">내 학습지</div>
@@ -211,69 +229,89 @@ function gradeQuestion(q, submitted) {
 // 화면 전환 / 상태
 // =========================================================
 let currentStudent = null; // {id, name}
-let currentClassId = null;
 let currentWorksheet = null; // {id, title, questions:[...]}
 let answers = {};
 
+const SESSION_KEY = 'calc_drill_student_v1';
+
 function showScreen(id) {
-  ['screenLogin','screenList','screenQuiz'].forEach(s => {
+  ['screenLogin','screenChangePw','screenList','screenQuiz'].forEach(s => {
     document.getElementById(s).classList.toggle('hidden', s !== id);
   });
 }
 
-async function loadClasses() {
-  const { data, error } = await db.from('classes').select('*').order('name');
-  const sel = document.getElementById('classSelect');
-  sel.innerHTML = '<option value="">반 선택</option>';
-  (data || []).forEach(c => {
-    const opt = document.createElement('option');
-    opt.value = c.id; opt.textContent = c.name;
-    sel.appendChild(opt);
-  });
-}
-
-async function loadStudentsOfClass(classId) {
-  const sel = document.getElementById('studentSelect');
-  sel.innerHTML = '<option value="">이름 선택</option>';
-  sel.disabled = true;
-  if (!classId) return;
-  const { data } = await db
-    .from('students')
-    .select('id, name')
-    .eq('class_id', classId)
-    .order('name');
-  (data || [])
-    .forEach(s => {
-      const opt = document.createElement('option');
-      opt.value = s.id; opt.textContent = s.name;
-      sel.appendChild(opt);
-    });
-  sel.disabled = false;
-}
-
-document.getElementById('classSelect').addEventListener('change', (e) => {
-  currentClassId = e.target.value || null;
-  loadStudentsOfClass(currentClassId);
-  document.getElementById('loginBtn').disabled = true;
-});
-document.getElementById('studentSelect').addEventListener('change', (e) => {
-  document.getElementById('loginBtn').disabled = !e.target.value;
-});
-document.getElementById('loginBtn').addEventListener('click', () => {
-  const sel = document.getElementById('studentSelect');
-  currentStudent = { id: sel.value, name: sel.options[sel.selectedIndex].textContent };
+function enterAsStudent(student) {
+  currentStudent = { id: student.id, name: student.name };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(currentStudent));
   document.getElementById('headerSub').textContent = currentStudent.name + '님';
+  if (student.must_change_password) {
+    showScreen('screenChangePw');
+  } else {
+    showScreen('screenList');
+    loadWorksheetList();
+  }
+}
+
+document.getElementById('loginBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('loginError');
+  errEl.classList.add('hidden');
+  const studentNo = document.getElementById('loginNoInput').value.trim();
+  const password = document.getElementById('loginPwInput').value.trim();
+  if (!studentNo || !password) { errEl.textContent = '학번과 비밀번호를 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+
+  const { data, error } = await db
+    .from('students')
+    .select('id, name, must_change_password')
+    .eq('student_no', studentNo)
+    .eq('password', password)
+    .maybeSingle();
+
+  if (error || !data) { errEl.classList.remove('hidden'); return; }
+  enterAsStudent(data);
+});
+
+document.getElementById('changePwBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('changePwError');
+  errEl.classList.add('hidden');
+  const pw1 = document.getElementById('newPwInput').value.trim();
+  const pw2 = document.getElementById('newPwInput2').value.trim();
+  if (!pw1) { errEl.textContent = '새 비밀번호를 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+  if (pw1 !== pw2) { errEl.textContent = '비밀번호가 서로 다릅니다.'; errEl.classList.remove('hidden'); return; }
+
+  const { error } = await db
+    .from('students')
+    .update({ password: pw1, must_change_password: false })
+    .eq('id', currentStudent.id);
+  if (error) { errEl.textContent = '변경 실패: ' + error.message; errEl.classList.remove('hidden'); return; }
+
+  document.getElementById('newPwInput').value = '';
+  document.getElementById('newPwInput2').value = '';
   showScreen('screenList');
   loadWorksheetList();
 });
+
 document.getElementById('logoutLink').addEventListener('click', () => {
   currentStudent = null;
+  localStorage.removeItem(SESSION_KEY);
+  document.getElementById('loginNoInput').value = '';
+  document.getElementById('loginPwInput').value = '';
   showScreen('screenLogin');
 });
 document.getElementById('backToList').addEventListener('click', () => {
   showScreen('screenList');
   loadWorksheetList();
 });
+
+// 저장된 세션이 있으면 자동 로그인 (최신 must_change_password 상태는 서버에서 다시 확인)
+async function tryAutoLogin() {
+  const saved = localStorage.getItem(SESSION_KEY);
+  if (!saved) return;
+  let parsed;
+  try { parsed = JSON.parse(saved); } catch { localStorage.removeItem(SESSION_KEY); return; }
+  const { data, error } = await db.from('students').select('id, name, must_change_password').eq('id', parsed.id).maybeSingle();
+  if (error || !data) { localStorage.removeItem(SESSION_KEY); return; }
+  enterAsStudent(data);
+}
 
 async function loadWorksheetList() {
   const listEl = document.getElementById('worksheetList');
@@ -503,7 +541,8 @@ function showResult(wrongCount, passed, attemptNo) {
   overlay.classList.add('show');
 }
 
-loadClasses();
+showScreen('screenLogin');
+tryAutoLogin();
 </script>
 </body>
 </html>

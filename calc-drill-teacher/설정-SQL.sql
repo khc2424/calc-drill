@@ -13,11 +13,16 @@ create table classes (
 );
 
 -- 학생 (한 학생 = 반 1개)
+-- student_no: 로그인용 학번 / password: 로그인 비밀번호(초기값 전화번호 뒤 4자리)
+-- must_change_password: 최초 로그인 시 비밀번호 변경을 강제할지 여부
 create table students (
   id uuid default gen_random_uuid() primary key,
   name text not null,
   class_id uuid references classes(id) on delete set null,
   phone text,
+  student_no text,
+  password text,
+  must_change_password boolean not null default true,
   created_at timestamptz default now()
 );
 
@@ -106,3 +111,22 @@ insert into tags (name) values ('연산실수'), ('문제 해석실수'), ('그�
 alter table questions add column if not exists answer_prefix text;
 alter table questions add column if not exists answer_suffix text;
 alter table questions alter column tolerance set default 0;
+
+alter table students add column if not exists student_no text;
+alter table students add column if not exists password text;
+alter table students add column if not exists must_change_password boolean not null default true;
+
+-- 기존 학생들에게 학번(1,2,3...) 자동 부여
+with numbered as (
+  select id, row_number() over (order by created_at) as rn
+  from students where student_no is null
+)
+update students s set student_no = numbered.rn::text
+from numbered where s.id = numbered.id;
+
+-- 기존 학생들 초기 비밀번호를 전화번호 뒤 4자리로 채우기 (전화번호 없으면 0000)
+update students
+set password = right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 4)
+where password is null and length(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')) >= 4;
+
+update students set password = '0000' where password is null or password = '';
