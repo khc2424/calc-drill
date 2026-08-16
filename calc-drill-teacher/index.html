@@ -419,7 +419,8 @@ async function openWorksheetEditor(id) {
     title = w.title;
     editorQuestions = (w.questions || []).sort((a,b)=>a.question_no-b.question_no).map(q => ({
       type: q.type, correct_choice: q.correct_choice, correct_value: q.correct_value || '',
-      tolerance: q.tolerance ?? 0.001, tag_id: q.tag_id || ''
+      answer_prefix: q.answer_prefix || '', answer_suffix: q.answer_suffix || '',
+      tolerance: q.tolerance ?? 0, tag_id: q.tag_id || ''
     }));
     const { data: ws } = await db.from('worksheet_students').select('student_id').eq('worksheet_id', id);
     assignedStudentIds = (ws || []).map(r => r.student_id);
@@ -429,7 +430,7 @@ async function openWorksheetEditor(id) {
 
   renderEditor(title, assignedStudentIds);
 }
-function emptyQuestion() { return { type:'mc', correct_choice:1, correct_value:'', tolerance:0.001, tag_id:'' }; }
+function emptyQuestion() { return { type:'mc', correct_choice:1, correct_value:'', answer_prefix:'', answer_suffix:'', tolerance:0, tag_id:'' }; }
 
 function renderEditor(title, assignedStudentIds) {
   const view = document.getElementById('wsEditorView');
@@ -587,7 +588,8 @@ function renderEditor(title, assignedStudentIds) {
         type: q.type === 'mc' ? 'mc' : 'short',
         correct_choice: q.type === 'mc' ? (q.correct_choice || 1) : 1,
         correct_value: q.type === 'short' ? (q.correct_value || '') : '',
-        tolerance: 0.001,
+        answer_prefix: '', answer_suffix: '',
+        tolerance: 0,
         tag_id: ''
       }));
       document.getElementById('wsQCount').value = editorQuestions.length;
@@ -651,12 +653,26 @@ function renderQuestionBoxes() {
       const grid = document.createElement('div');
       grid.className = 'grid2';
       grid.innerHTML = `
-        <div><label>정답</label><input type="text" class="ansInput" placeholder="예: 1/2, 2√3, x>1" value="${(q.correct_value||'').replace(/"/g,'&quot;')}"></div>
+        <div><label>정답(핵심 값만)</label><input type="text" class="ansInput" placeholder="예: 1/2, 2√3, 3, 150" value="${(q.correct_value||'').replace(/"/g,'&quot;')}"></div>
         <div><label>허용 오차</label><input type="number" step="0.001" class="tolInput" value="${q.tolerance}"></div>
       `;
       grid.querySelector('.ansInput').addEventListener('input', e => q.correct_value = e.target.value);
       grid.querySelector('.tolInput').addEventListener('input', e => q.tolerance = Number(e.target.value));
       box.appendChild(grid);
+
+      const fixWrap = document.createElement('div');
+      fixWrap.className = 'grid2 mt-2';
+      fixWrap.innerHTML = `
+        <div><label>답 앞 고정 표시(선택)</label><input type="text" class="prefixInput" placeholder="예: 제" value="${(q.answer_prefix||'').replace(/"/g,'&quot;')}"></div>
+        <div><label>답 뒤 고정 표시(선택)</label><input type="text" class="suffixInput" placeholder="예: 사분면, m" value="${(q.answer_suffix||'').replace(/"/g,'&quot;')}"></div>
+      `;
+      fixWrap.querySelector('.prefixInput').addEventListener('input', e => q.answer_prefix = e.target.value);
+      fixWrap.querySelector('.suffixInput').addEventListener('input', e => q.answer_suffix = e.target.value);
+      box.appendChild(fixWrap);
+      const fixHint = document.createElement('div');
+      fixHint.style.fontSize = '11px'; fixHint.style.color = '#999'; fixHint.style.marginTop = '4px';
+      fixHint.textContent = '학생 화면에 "앞고정 [입력칸] 뒤고정" 형태로 표시되고, 학생은 빈칸에 정답(핵심 값)만 입력하면 됩니다.';
+      box.appendChild(fixHint);
     }
 
     const tagWrap = document.createElement('div');
@@ -703,7 +719,9 @@ async function saveWorksheet(assignedStudentIds) {
     worksheet_id: worksheetId, question_no: idx+1, type: q.type,
     correct_choice: q.type === 'mc' ? q.correct_choice : null,
     correct_value: q.type === 'short' ? String(q.correct_value).trim() : null,
-    tolerance: q.tolerance ?? 0.001,
+    answer_prefix: q.type === 'short' ? (String(q.answer_prefix||'').trim() || null) : null,
+    answer_suffix: q.type === 'short' ? (String(q.answer_suffix||'').trim() || null) : null,
+    tolerance: q.tolerance ?? 0,
     tag_id: q.tag_id || null
   }));
   await db.from('questions').insert(rows);

@@ -204,7 +204,7 @@ function gradeShortAnswer(submitted, correct, tol) {
 }
 function gradeQuestion(q, submitted) {
   if (q.type === 'mc') return Number(submitted) === Number(q.correct_choice);
-  return gradeShortAnswer(submitted, q.correct_value, q.tolerance ?? 0.001);
+  return gradeShortAnswer(submitted, q.correct_value, q.tolerance ?? 0);
 }
 
 // =========================================================
@@ -377,11 +377,35 @@ function renderQuizForm() {
       }
       card.appendChild(row);
     } else {
+      const answerRow = document.createElement('div');
+      answerRow.style.display = 'flex';
+      answerRow.style.alignItems = 'center';
+      answerRow.style.gap = '6px';
+      answerRow.style.flexWrap = 'wrap';
+
+      if (q.answer_prefix) {
+        const pre = document.createElement('span');
+        pre.textContent = q.answer_prefix;
+        pre.style.fontWeight = '600';
+        answerRow.appendChild(pre);
+      }
+
       const input = document.createElement('input');
       input.type = 'text';
       input.placeholder = '답을 입력하세요';
+      input.style.flex = '1';
+      input.style.minWidth = '80px';
       input.addEventListener('input', () => { answers[q.id] = input.value; });
-      card.appendChild(input);
+      answerRow.appendChild(input);
+
+      if (q.answer_suffix) {
+        const suf = document.createElement('span');
+        suf.textContent = q.answer_suffix;
+        suf.style.fontWeight = '600';
+        answerRow.appendChild(suf);
+      }
+
+      card.appendChild(answerRow);
 
       const symRow = document.createElement('div');
       symRow.className = 'symbol-row';
