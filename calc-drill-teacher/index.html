@@ -588,13 +588,14 @@ function renderEditor(title, assignedStudentIds) {
         type: q.type === 'mc' ? 'mc' : 'short',
         correct_choice: q.type === 'mc' ? (q.correct_choice || 1) : 1,
         correct_value: q.type === 'short' ? (q.correct_value || '') : '',
-        answer_prefix: '', answer_suffix: '',
+        answer_prefix: q.type === 'short' ? (q.answer_prefix || '') : '',
+        answer_suffix: q.type === 'short' ? (q.answer_suffix || '') : '',
         tolerance: 0,
         tag_id: ''
       }));
       document.getElementById('wsQCount').value = editorQuestions.length;
       renderQuestionBoxes();
-      statusEl.textContent = editorQuestions.length + '개 문항을 채웠습니다. 아래에서 꼭 확인·수정한 뒤 저장하세요.';
+      statusEl.textContent = editorQuestions.length + '개 문항을 채웠습니다. 앞/뒤 고정 표시도 AI가 자동으로 채웠을 수 있으니, 아래에서 꼭 확인·수정한 뒤 저장하세요.';
       statusEl.style.color = '#16a34a';
     } catch (e) {
       statusEl.textContent = '오류: ' + e.message;

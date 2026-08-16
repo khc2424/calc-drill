@@ -23,12 +23,14 @@ module.exports = async function handler(req, res) {
   const prompt = `다음 PDF는 수학 학습지의 문제와 정답입니다. 각 문항을 분석해서 아래 형식의 순수 JSON 객체 하나만 출력하세요. 설명, 마크다운 코드블록 없이 JSON만 출력하세요.
 
 형식:
-{"questions":[{"question_no":1,"type":"mc","correct_choice":3},{"question_no":2,"type":"short","correct_value":"3/4"}]}
+{"questions":[{"question_no":1,"type":"mc","correct_choice":3},{"question_no":2,"type":"short","correct_value":"3/4"},{"question_no":3,"type":"short","correct_value":"3","answer_prefix":"제","answer_suffix":"사분면"},{"question_no":4,"type":"short","correct_value":"150","answer_suffix":"m"}]}
 
 규칙:
 - type은 5지선다 객관식이면 "mc", 주관식(값을 직접 입력하는 문제)이면 "short"
 - mc인 경우 correct_choice에 1~5 중 정답 번호(숫자)만 넣기
-- short인 경우 correct_value에 정답 값을 문자열로 넣기 (분수는 a/b 형태, 근호는 sqrt(x) 형태, 파이는 pi, 자연상수는 e, 무한대는 inf, 절댓값은 |x| 형태로 표기)
+- short인 경우 correct_value에는 학생이 실제로 입력해야 하는 핵심 값만 넣기 (분수는 a/b 형태, 근호는 sqrt(x) 형태, 파이는 pi, 자연상수는 e, 무한대는 inf, 절댓값은 |x| 형태로 표기)
+- 정답에 "제N사분면"처럼 앞에 고정된 말이 붙거나, "150m", "30°", "20%"처럼 뒤에 단위/기호가 붙는 경우, 그 고정된 부분은 answer_prefix(앞부분) 또는 answer_suffix(뒷부분)에 넣고, correct_value에는 변하는 핵심 값만 남기기. 예: "제3사분면" → correct_value:"3", answer_prefix:"제", answer_suffix:"사분면". "150m" → correct_value:"150", answer_suffix:"m"
+- 고정된 접두/접미가 없는 문항은 answer_prefix/answer_suffix를 아예 넣지 않아도 됨
 - question_no는 1부터 문제 순서대로
 - 정답을 확실히 알 수 없는 문항은 결과에서 제외
 - 문제 본문 텍스트는 포함하지 말고 번호/유형/정답만 출력`;
