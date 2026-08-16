@@ -168,8 +168,8 @@
 // =========================================================
 // 설정 — 본인 값으로 교체하세요
 // =========================================================
-const SUPABASE_URL = 'https://obgdwtsykchxjbtvqssn.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9iZ2R3dHN5a2NoeGpidHZxc3NuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNjEwMzEsImV4cCI6MjEwMTkzNzAzMX0.T8NuPqDk1NZfawzP9sIJGu2iyJYFlGPLvMt4T2cuPpQ';
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
 const TEACHER_PW   = '2424'; // 선생님 페이지 접속 비밀번호 (원하는 값으로 변경)
 
 const { createClient } = supabase;
@@ -213,6 +213,7 @@ function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
 let allClasses = [];
 let allTags = [];
+let allStudents = [];
 
 function initAll() {
   loadClasses();
@@ -319,6 +320,7 @@ async function loadStudentList() {
     .from('students')
     .select('id, name, class_id, phone, classes(id, name)')
     .order('created_at');
+  allStudents = data || [];
   const tbody = document.getElementById('studentTableBody');
   tbody.innerHTML = '';
   (data || []).forEach(s => {
@@ -411,7 +413,7 @@ async function openWorksheetEditor(id) {
   view.classList.remove('hidden');
 
   let title = '';
-  let assignedClassIds = [];
+  let assignedStudentIds = [];
   if (id) {
     const { data: w } = await db.from('worksheets').select('*, questions(*)').eq('id', id).single();
     title = w.title;
@@ -419,17 +421,17 @@ async function openWorksheetEditor(id) {
       type: q.type, correct_choice: q.correct_choice, correct_value: q.correct_value || '',
       tolerance: q.tolerance ?? 0.001, tag_id: q.tag_id || ''
     }));
-    const { data: wc } = await db.from('worksheet_classes').select('class_id').eq('worksheet_id', id);
-    assignedClassIds = (wc || []).map(r => r.class_id);
+    const { data: ws } = await db.from('worksheet_students').select('student_id').eq('worksheet_id', id);
+    assignedStudentIds = (ws || []).map(r => r.student_id);
   } else {
     editorQuestions = [emptyQuestion()];
   }
 
-  renderEditor(title, assignedClassIds);
+  renderEditor(title, assignedStudentIds);
 }
 function emptyQuestion() { return { type:'mc', correct_choice:1, correct_value:'', tolerance:0.001, tag_id:'' }; }
 
-function renderEditor(title, assignedClassIds) {
+function renderEditor(title, assignedStudentIds) {
   const view = document.getElementById('wsEditorView');
   view.innerHTML = '';
 
@@ -453,6 +455,17 @@ function renderEditor(title, assignedClassIds) {
   `;
   view.appendChild(card);
 
+  const pdfCard = document.createElement('div');
+  pdfCard.className = 'card';
+  pdfCard.innerHTML = `
+    <div class="card-title">PDF로 자동 생성 (AI, 검토 필요)</div>
+    <div style="font-size:12px;color:#999;margin-bottom:10px">문제와 정답이 있는 PDF를 올리면 AI가 문항을 자동으로 채워줍니다. AI가 실수할 수 있으니 반드시 아래 문항 목록에서 확인·수정한 뒤 저장하세요.</div>
+    <input type="file" accept="application/pdf" id="pdfInput" class="mb-2">
+    <button class="btn btn-secondary" id="pdfParseBtn">자동 생성</button>
+    <div id="pdfStatus" style="font-size:13px;margin-top:8px"></div>
+  `;
+  view.appendChild(pdfCard);
+
   const qContainer = document.createElement('div');
   qContainer.id = 'qContainer';
   view.appendChild(qContainer);
@@ -464,27 +477,64 @@ function renderEditor(title, assignedClassIds) {
   addBtn.onclick = () => { editorQuestions.push(emptyQuestion()); document.getElementById('wsQCount').value = editorQuestions.length; renderQuestionBoxes(); };
   view.appendChild(addBtn);
 
-  // 배정
+  // 배정 (반 선택 → 그 반 학생들 중 개별 선택)
   const assignCard = document.createElement('div');
   assignCard.className = 'card';
-  assignCard.innerHTML = `<div class="card-title">배정할 반</div><div id="assignChips"></div>`;
+  assignCard.innerHTML = `<div class="card-title">배정할 학생</div><div style="font-size:12px;color:#999;margin-bottom:10px">반 이름 옆 "전체 선택"으로 한번에 고르거나, 학생을 개별로 선택할 수 있습니다.</div><div id="assignGroups"></div>`;
   view.appendChild(assignCard);
-  const assignChips = assignCard.querySelector('#assignChips');
-  let selectedAssign = [...assignedClassIds];
-  function renderAssignChips() {
-    assignChips.innerHTML = '';
-    allClasses.forEach(c => {
-      const chip = document.createElement('span');
-      chip.className = 'chip' + (selectedAssign.includes(c.id) ? ' selected' : '');
-      chip.textContent = c.name;
-      chip.onclick = () => {
-        selectedAssign = selectedAssign.includes(c.id) ? selectedAssign.filter(x=>x!==c.id) : [...selectedAssign, c.id];
-        renderAssignChips();
+  const assignGroups = assignCard.querySelector('#assignGroups');
+  let selectedAssign = [...assignedStudentIds];
+  function renderAssignGroups() {
+    assignGroups.innerHTML = '';
+    const groups = allClasses
+      .map(c => ({ cls: c, students: allStudents.filter(s => s.class_id === c.id) }))
+      .filter(g => g.students.length > 0);
+    const noClassStudents = allStudents.filter(s => !s.class_id);
+    if (noClassStudents.length) groups.push({ cls: { id: '', name: '반 없음' }, students: noClassStudents });
+
+    if (!groups.length) {
+      assignGroups.innerHTML = '<div style="font-size:13px;color:#999">등록된 학생이 없습니다. 먼저 학생 관리에서 학생을 추가하세요.</div>';
+      return;
+    }
+
+    groups.forEach(g => {
+      const groupDiv = document.createElement('div');
+      groupDiv.className = 'mb-3';
+      const allIn = g.students.every(s => selectedAssign.includes(s.id));
+
+      const headerRow = document.createElement('div');
+      headerRow.style.display = 'flex'; headerRow.style.justifyContent = 'space-between';
+      headerRow.style.alignItems = 'center'; headerRow.style.marginBottom = '6px';
+      const label = document.createElement('b');
+      label.style.fontSize = '13px'; label.textContent = g.cls.name;
+      const toggleBtn = document.createElement('button');
+      toggleBtn.className = 'btn btn-secondary';
+      toggleBtn.style.padding = '4px 10px'; toggleBtn.style.fontSize = '12px';
+      toggleBtn.textContent = allIn ? '전체 해제' : '전체 선택';
+      toggleBtn.onclick = () => {
+        const ids = g.students.map(s => s.id);
+        selectedAssign = allIn ? selectedAssign.filter(id => !ids.includes(id)) : [...new Set([...selectedAssign, ...ids])];
+        renderAssignGroups();
       };
-      assignChips.appendChild(chip);
+      headerRow.appendChild(label); headerRow.appendChild(toggleBtn);
+      groupDiv.appendChild(headerRow);
+
+      const chipsRow = document.createElement('div');
+      g.students.forEach(s => {
+        const chip = document.createElement('span');
+        chip.className = 'chip' + (selectedAssign.includes(s.id) ? ' selected' : '');
+        chip.textContent = s.name;
+        chip.onclick = () => {
+          selectedAssign = selectedAssign.includes(s.id) ? selectedAssign.filter(x => x !== s.id) : [...selectedAssign, s.id];
+          renderAssignGroups();
+        };
+        chipsRow.appendChild(chip);
+      });
+      groupDiv.appendChild(chipsRow);
+      assignGroups.appendChild(groupDiv);
     });
   }
-  renderAssignChips();
+  renderAssignGroups();
 
   const saveRow = document.createElement('div');
   saveRow.className = 'row';
@@ -514,6 +564,49 @@ function renderEditor(title, assignedClassIds) {
     await addTag(input.value.trim());
     input.value = '';
     renderQuestionBoxes();
+  });
+
+  document.getElementById('pdfParseBtn').addEventListener('click', async () => {
+    const fileInput = document.getElementById('pdfInput');
+    const statusEl = document.getElementById('pdfStatus');
+    const file = fileInput.files[0];
+    if (!file) { statusEl.textContent = 'PDF 파일을 선택해주세요.'; statusEl.style.color = '#ef4444'; return; }
+    statusEl.textContent = '분석 중입니다... (10~30초 정도 걸릴 수 있어요)';
+    statusEl.style.color = '#888';
+    try {
+      const base64 = await fileToBase64(file);
+      const resp = await fetch('/api/parse-worksheet', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pdfBase64: base64 })
+      });
+      const data = await resp.json();
+      if (!resp.ok) { statusEl.textContent = data.error || '분석에 실패했습니다.'; statusEl.style.color = '#ef4444'; return; }
+      if (!data.questions || !data.questions.length) { statusEl.textContent = '문항을 찾지 못했습니다. 수동으로 입력해주세요.'; statusEl.style.color = '#ef4444'; return; }
+      editorQuestions = data.questions.map(q => ({
+        type: q.type === 'mc' ? 'mc' : 'short',
+        correct_choice: q.type === 'mc' ? (q.correct_choice || 1) : 1,
+        correct_value: q.type === 'short' ? (q.correct_value || '') : '',
+        tolerance: 0.001,
+        tag_id: ''
+      }));
+      document.getElementById('wsQCount').value = editorQuestions.length;
+      renderQuestionBoxes();
+      statusEl.textContent = editorQuestions.length + '개 문항을 채웠습니다. 아래에서 꼭 확인·수정한 뒤 저장하세요.';
+      statusEl.style.color = '#16a34a';
+    } catch (e) {
+      statusEl.textContent = '오류: ' + e.message;
+      statusEl.style.color = '#ef4444';
+    }
+  });
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
 }
 
@@ -585,7 +678,7 @@ function renderQuestionBoxes() {
   });
 }
 
-async function saveWorksheet(assignedClassIds) {
+async function saveWorksheet(assignedStudentIds) {
   const errEl = document.getElementById('wsErr');
   errEl.classList.add('hidden');
   const title = document.getElementById('wsTitleInput').value.trim();
@@ -615,9 +708,9 @@ async function saveWorksheet(assignedClassIds) {
   }));
   await db.from('questions').insert(rows);
 
-  await db.from('worksheet_classes').delete().eq('worksheet_id', worksheetId);
-  if (assignedClassIds.length > 0) {
-    await db.from('worksheet_classes').insert(assignedClassIds.map(class_id => ({ worksheet_id: worksheetId, class_id })));
+  await db.from('worksheet_students').delete().eq('worksheet_id', worksheetId);
+  if (assignedStudentIds.length > 0) {
+    await db.from('worksheet_students').insert(assignedStudentIds.map(student_id => ({ worksheet_id: worksheetId, student_id })));
   }
 
   closeEditor();

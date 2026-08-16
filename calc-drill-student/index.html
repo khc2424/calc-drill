@@ -123,8 +123,8 @@
 // =========================================================
 // Supabase 연결 정보 — 반드시 본인 프로젝트 값으로 교체하세요
 // =========================================================
-const SUPABASE_URL = 'https://obgdwtsykchxjbtvqssn.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9iZ2R3dHN5a2NoeGpidHZxc3NuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODYzNjEwMzEsImV4cCI6MjEwMTkzNzAzMX0.T8NuPqDk1NZfawzP9sIJGu2iyJYFlGPLvMt4T2cuPpQ';
+const SUPABASE_URL = 'YOUR_SUPABASE_URL';
+const SUPABASE_KEY = 'YOUR_SUPABASE_ANON_KEY';
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -280,12 +280,12 @@ async function loadWorksheetList() {
   const noneEl = document.getElementById('noWorksheet');
   listEl.innerHTML = '';
 
-  const { data: wc } = await db
-    .from('worksheet_classes')
+  const { data: ws } = await db
+    .from('worksheet_students')
     .select('worksheet_id, worksheets(id, title)')
-    .eq('class_id', currentClassId);
+    .eq('student_id', currentStudent.id);
 
-  const worksheets = (wc || []).map(r => r.worksheets).filter(Boolean);
+  const worksheets = (ws || []).map(r => r.worksheets).filter(Boolean);
   if (worksheets.length === 0) { noneEl.classList.remove('hidden'); return; }
   noneEl.classList.add('hidden');
 
