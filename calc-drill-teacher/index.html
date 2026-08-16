@@ -150,10 +150,8 @@
       <input type="text" id="stuNameInput" placeholder="학생 이름" class="mb-3">
       <label>반</label>
       <select id="stuClassInput" class="mb-3"><option value="">반 없음</option></select>
-      <label>연락처</label>
+      <label>연락처 (로그인 아이디) *</label>
       <input type="text" id="stuPhoneInput" placeholder="010-0000-0000" class="mb-3">
-      <label>학번 (로그인 아이디) *</label>
-      <input type="text" id="stuNoInput" placeholder="예: 1" class="mb-3">
       <label>비밀번호 (기본: 전화번호 뒤 4자리)</label>
       <input type="text" id="stuPwInput" placeholder="예: 1234">
       <div style="font-size:11px;color:#999;margin-top:4px">학생이 처음 로그인하면 비밀번호 변경을 요청받습니다.</div>
@@ -188,6 +186,12 @@ const TEACHER_PW   = '2424'; // 선생님 페이지 접속 비밀번호 (원하�
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// 삭제 등 되돌릴 수 없는 작업은 두 번 확인
+function confirmDelete(msg) {
+  if (!confirm(msg)) return false;
+  return confirm('정말로 삭제할까요? 이 작업은 되돌릴 수 없습니다.');
+}
 
 // =========================================================
 // 로그인 게이트
@@ -284,7 +288,7 @@ function renderClassActionsRow() {
   const delBtn = document.createElement('button');
   delBtn.className = 'btn btn-danger'; delBtn.textContent = '이 반 삭제';
   delBtn.onclick = async () => {
-    if (!confirm(cls.name + ' 반을 삭제할까요? (소속 학생은 반 없음으로 남습니다)')) return;
+    if (!confirmDelete(cls.name + ' 반을 삭제할까요? (소속 학생은 반 없음으로 남습니다)')) return;
     await db.from('classes').delete().eq('id', cls.id);
     selectedClassId = '';
     loadClasses();
@@ -321,7 +325,6 @@ function openStudentModal(student) {
   const defaultClass = selectedClassId && selectedClassId !== '__none__' ? selectedClassId : '';
   document.getElementById('stuClassInput').value = student ? (student.class_id || '') : defaultClass;
   document.getElementById('stuPhoneInput').value = student ? (student.phone || '') : '';
-  document.getElementById('stuNoInput').value = student ? (student.student_no || '') : '';
   document.getElementById('stuPwInput').value = student ? (student.password || '') : '';
   document.getElementById('studentModal').dataset.origPw = student ? (student.password || '') : '';
   document.getElementById('studentModal').classList.add('show');
@@ -337,12 +340,11 @@ document.getElementById('studentModalSaveBtn').addEventListener('click', async (
   const name = document.getElementById('stuNameInput').value.trim();
   const classId = document.getElementById('stuClassInput').value || null;
   const phone = document.getElementById('stuPhoneInput').value.trim();
-  const studentNo = document.getElementById('stuNoInput').value.trim();
   let password = document.getElementById('stuPwInput').value.trim();
   const errEl = document.getElementById('stuModalErr');
   errEl.classList.add('hidden');
   if (!name) { errEl.textContent = '이름을 입력해주세요'; errEl.classList.remove('hidden'); return; }
-  if (!studentNo) { errEl.textContent = '학번을 입력해주세요'; errEl.classList.remove('hidden'); return; }
+  if (!phone) { errEl.textContent = '연락처(로그인 아이디)를 입력해주세요'; errEl.classList.remove('hidden'); return; }
 
   if (!password) {
     const digits = phone.replace(/[^0-9]/g, '');
@@ -350,7 +352,7 @@ document.getElementById('studentModalSaveBtn').addEventListener('click', async (
   }
 
   const origPw = document.getElementById('studentModal').dataset.origPw || '';
-  const payload = { name, class_id: classId, phone: phone || null, student_no: studentNo, password };
+  const payload = { name, class_id: classId, phone, password };
   if (password !== origPw) payload.must_change_password = true;
 
   const { error } = id
@@ -364,7 +366,7 @@ document.getElementById('studentModalSaveBtn').addEventListener('click', async (
 async function loadStudentList() {
   const { data } = await db
     .from('students')
-    .select('id, name, class_id, phone, student_no, password, must_change_password, classes(id, name)')
+    .select('id, name, class_id, phone, password, must_change_password, classes(id, name)')
     .order('created_at');
   allStudents = data || [];
   renderStudentListArea();
@@ -415,7 +417,7 @@ function renderStudentListArea() {
       pwSpan.textContent = shown ? (s.password || '-') : '••••';
       pwToggle.textContent = shown ? '숨기기' : '비밀번호 보기';
     };
-    meta.textContent = `학번 ${s.student_no || '-'} · 연락처 ${s.phone || '-'} · 비밀번호 `;
+    meta.textContent = `연락처(로그인 아이디) ${s.phone || '-'} · 비밀번호 `;
     meta.appendChild(pwSpan);
     meta.appendChild(document.createTextNode(' '));
     meta.appendChild(pwToggle);
@@ -429,7 +431,7 @@ function renderStudentListArea() {
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-danger'; delBtn.textContent = '삭제';
     delBtn.onclick = async () => {
-      if (!confirm(s.name + ' 학생을 삭제할까요?')) return;
+      if (!confirmDelete(s.name + ' 학생을 삭제할까요? (관련 시도 기록도 함께 삭제됩니다)')) return;
       await db.from('students').delete().eq('id', s.id);
       loadStudentList();
     };
@@ -534,7 +536,7 @@ function renderWorksheetsList() {
     const delBtn = document.createElement('button');
     delBtn.className = 'btn btn-danger'; delBtn.textContent = '삭제';
     delBtn.onclick = async () => {
-      if (!confirm('이 학습지를 삭제할까요?')) return;
+      if (!confirmDelete('이 학습지를 삭제할까요? (문항, 배정, 학생들의 시도 기록도 함께 삭제됩니다)')) return;
       await db.from('worksheets').delete().eq('id', w.id);
       loadWorksheetsList();
     };

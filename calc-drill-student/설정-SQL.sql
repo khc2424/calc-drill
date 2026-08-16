@@ -13,8 +13,9 @@ create table classes (
 );
 
 -- 학생 (한 학생 = 반 1개)
--- student_no: 로그인용 학번 / password: 로그인 비밀번호(초기값 전화번호 뒤 4자리)
+-- phone: 로그인 아이디로 사용 / password: 로그인 비밀번호(초기값 전화번호 뒤 4자리)
 -- must_change_password: 최초 로그인 시 비밀번호 변경을 강제할지 여부
+-- (student_no 컬럼은 더 이상 사용하지 않습니다. 남아있어도 무해하니 그대로 두어도 됩니다.)
 create table students (
   id uuid default gen_random_uuid() primary key,
   name text not null,

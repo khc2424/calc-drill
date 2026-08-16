@@ -68,17 +68,17 @@
   <!-- 화면 1: 로그인 -->
   <div id="screenLogin">
     <div class="card">
-      <div class="card-title">학번과 비밀번호를 입력하세요</div>
+      <div class="card-title">연락처와 비밀번호를 입력하세요</div>
       <div class="mb-3">
-        <label>학번</label>
-        <input type="text" id="loginNoInput" placeholder="학번" inputmode="numeric" autocomplete="off">
+        <label>연락처</label>
+        <input type="text" id="loginNoInput" placeholder="010-0000-0000" inputmode="numeric" autocomplete="off">
       </div>
       <div class="mb-3">
         <label>비밀번호</label>
         <input type="text" id="loginPwInput" placeholder="비밀번호" inputmode="numeric" autocomplete="off">
       </div>
       <button class="btn btn-primary" id="loginBtn">로그인</button>
-      <div id="loginError" class="error-msg hidden">학번 또는 비밀번호가 올바르지 않습니다.</div>
+      <div id="loginError" class="error-msg hidden">연락처 또는 비밀번호가 올바르지 않습니다.</div>
     </div>
   </div>
 
@@ -95,6 +95,7 @@
         <input type="text" id="newPwInput2" placeholder="새 비밀번호 확인" inputmode="numeric" autocomplete="off">
       </div>
       <button class="btn btn-primary" id="changePwBtn">변경하고 시작하기</button>
+      <button class="btn btn-secondary mb-3" id="skipPwBtn" style="margin-top:8px">건너뛰기</button>
       <div id="changePwError" class="error-msg hidden"></div>
     </div>
   </div>
@@ -255,16 +256,17 @@ function enterAsStudent(student) {
 document.getElementById('loginBtn').addEventListener('click', async () => {
   const errEl = document.getElementById('loginError');
   errEl.classList.add('hidden');
-  const studentNo = document.getElementById('loginNoInput').value.trim();
+  const phoneRaw = document.getElementById('loginNoInput').value.trim();
   const password = document.getElementById('loginPwInput').value.trim();
-  if (!studentNo || !password) { errEl.textContent = '학번과 비밀번호를 입력해주세요.'; errEl.classList.remove('hidden'); return; }
+  const phoneDigits = phoneRaw.replace(/[^0-9]/g, '');
+  if (!phoneDigits || !password) { errEl.textContent = '연락처와 비밀번호를 입력해주세요.'; errEl.classList.remove('hidden'); return; }
 
-  const { data, error } = await db
+  // 전화번호는 표기(하이픈 유무 등)가 다를 수 있어 숫자만 비교
+  const { data: candidates, error } = await db
     .from('students')
-    .select('id, name, must_change_password')
-    .eq('student_no', studentNo)
-    .eq('password', password)
-    .maybeSingle();
+    .select('id, name, phone, must_change_password')
+    .eq('password', password);
+  const data = (candidates || []).find(s => (s.phone || '').replace(/[^0-9]/g, '') === phoneDigits) || null;
 
   if (error || !data) { errEl.classList.remove('hidden'); return; }
   enterAsStudent(data);
@@ -284,6 +286,14 @@ document.getElementById('changePwBtn').addEventListener('click', async () => {
     .eq('id', currentStudent.id);
   if (error) { errEl.textContent = '변경 실패: ' + error.message; errEl.classList.remove('hidden'); return; }
 
+  document.getElementById('newPwInput').value = '';
+  document.getElementById('newPwInput2').value = '';
+  showScreen('screenList');
+  loadWorksheetList();
+});
+
+document.getElementById('skipPwBtn').addEventListener('click', async () => {
+  await db.from('students').update({ must_change_password: false }).eq('id', currentStudent.id);
   document.getElementById('newPwInput').value = '';
   document.getElementById('newPwInput2').value = '';
   showScreen('screenList');
