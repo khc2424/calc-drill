@@ -109,10 +109,29 @@
     <!-- 결과 보기 -->
     <div id="tabResults" class="hidden">
       <div class="card">
-        <div class="card-title">결과 보기</div>
-        <div class="grid2 mb-3">
-          <select id="resultClassSelect"><option value="">전체 반</option></select>
-          <select id="resultStudentSelect"><option value="">학생 선택</option></select>
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <span>결과 보기</span>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-secondary" id="resViewSummaryBtn">학생별 요약</button>
+            <button class="btn btn-secondary" id="resViewWorksheetBtn">학습지별 현황</button>
+          </div>
+        </div>
+
+        <div id="resSummaryView">
+          <select id="resClassFilter" class="mb-3"><option value="">전체 반</option></select>
+          <div id="resSummaryList"></div>
+        </div>
+
+        <div id="resWorksheetView" class="hidden">
+          <select id="resWorksheetSelect" class="mb-3"><option value="">학습지 선택</option></select>
+          <div id="resWorksheetStatus"></div>
+        </div>
+      </div>
+
+      <div id="resStudentDetailCard" class="card hidden">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center">
+          <span id="resStudentDetailTitle">학생 상세</span>
+          <button class="btn btn-secondary" id="resDetailCloseBtn">닫기</button>
         </div>
         <div id="resultDetail"></div>
       </div>
@@ -176,6 +195,17 @@
   </div>
 </div>
 
+<!-- 시도별 전체 채점 결과 모달 -->
+<div class="modal-ov" id="attemptModal">
+  <div class="modal-bx" style="max-width:480px">
+    <div class="modal-hd"><b id="attemptModalTitle">채점 결과</b><button id="attemptModalCloseBtn">&times;</button></div>
+    <div class="modal-bd" id="attemptModalBody" style="max-height:60vh;overflow-y:auto"></div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="attemptModalCloseBtn2">닫기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // =========================================================
 // 설정 — 본인 값으로 교체하세요
@@ -225,6 +255,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     ['Worksheets','Results','Students'].forEach(name => {
       document.getElementById('tab' + name).classList.toggle('hidden', 'tab' + name !== 'tab' + capitalize(tab.dataset.tab));
     });
+    if (tab.dataset.tab === 'results') initResultsTab();
   });
 });
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -237,9 +268,8 @@ let selectedClassId = ''; // '' = 전체, '__none__' = 반 없음, 그 외 = cla
 async function initAll() {
   await loadClasses();
   loadTags();
-  loadWorksheetsList();
-  loadStudentList();
-  loadResultClassOptions();
+  await Promise.all([loadWorksheetsList(), loadStudentList()]);
+  initResultsTab();
 }
 
 // =========================================================
@@ -998,39 +1028,160 @@ function closeEditor() {
 // =========================================================
 // 결과 보기
 // =========================================================
-async function loadResultClassOptions() {
-  const sel = document.getElementById('resultClassSelect');
-  sel.innerHTML = '<option value="">전체 반</option>';
+let resView = 'summary'; // 'summary' | 'worksheet'
+let resAssignments = []; // [{worksheet_id, student_id}]
+let resAttempts = [];    // [{id, student_id, worksheet_id, attempt_no, wrong_count, passed}]
+let resSelectedClassId = '';
+
+async function initResultsTab() {
+  const classSel = document.getElementById('resClassFilter');
+  classSel.innerHTML = '<option value="">전체 반</option>';
   allClasses.forEach(c => {
     const opt = document.createElement('option'); opt.value = c.id; opt.textContent = c.name;
-    sel.appendChild(opt);
+    classSel.appendChild(opt);
   });
+  if (resSelectedClassId) classSel.value = resSelectedClassId;
+
+  const wsSel = document.getElementById('resWorksheetSelect');
+  const prevWs = wsSel.value;
+  wsSel.innerHTML = '<option value="">학습지 선택</option>';
+  (allWorksheetsData || []).forEach(w => {
+    const opt = document.createElement('option'); opt.value = w.id; opt.textContent = w.title;
+    wsSel.appendChild(opt);
+  });
+  if (prevWs) wsSel.value = prevWs;
+
+  await loadResultsOverviewData();
+  renderResSummaryList();
+  renderResWorksheetStatus();
 }
-document.getElementById('resultClassSelect').addEventListener('change', loadResultStudentOptions);
-document.getElementById('resultStudentSelect').addEventListener('change', loadResultDetail);
 
-async function loadResultStudentOptions() {
-  const classId = document.getElementById('resultClassSelect').value;
-  const sel = document.getElementById('resultStudentSelect');
-  sel.innerHTML = '<option value="">학생 선택</option>';
-  document.getElementById('resultDetail').innerHTML = '';
+async function loadResultsOverviewData() {
+  const [{ data: wsStudents }, { data: attempts }] = await Promise.all([
+    db.from('worksheet_students').select('worksheet_id, student_id'),
+    db.from('attempts').select('id, student_id, worksheet_id, attempt_no, wrong_count, passed')
+  ]);
+  resAssignments = wsStudents || [];
+  resAttempts = attempts || [];
+}
 
-  let students;
-  if (classId) {
-    const { data } = await db.from('students').select('id, name').eq('class_id', classId);
-    students = data || [];
-  } else {
-    const { data } = await db.from('students').select('id, name');
-    students = data || [];
+function setResView(view) {
+  resView = view;
+  document.getElementById('resSummaryView').classList.toggle('hidden', view !== 'summary');
+  document.getElementById('resWorksheetView').classList.toggle('hidden', view !== 'worksheet');
+  document.getElementById('resViewSummaryBtn').className = view === 'summary' ? 'btn btn-primary' : 'btn btn-secondary';
+  document.getElementById('resViewWorksheetBtn').className = view === 'worksheet' ? 'btn btn-primary' : 'btn btn-secondary';
+  closeStudentResultDetail();
+}
+document.getElementById('resViewSummaryBtn').addEventListener('click', () => setResView('summary'));
+document.getElementById('resViewWorksheetBtn').addEventListener('click', () => setResView('worksheet'));
+setResView('summary');
+
+document.getElementById('resClassFilter').addEventListener('change', (e) => {
+  resSelectedClassId = e.target.value;
+  renderResSummaryList();
+});
+document.getElementById('resWorksheetSelect').addEventListener('change', renderResWorksheetStatus);
+
+function studentWsStats(studentId) {
+  const assignedIds = [...new Set(resAssignments.filter(a => a.student_id === studentId).map(a => a.worksheet_id))];
+  const passedIds = new Set(resAttempts.filter(a => a.student_id === studentId && a.passed).map(a => a.worksheet_id));
+  const passedCount = assignedIds.filter(id => passedIds.has(id)).length;
+  return { assignedCount: assignedIds.length, passedCount, notPassedCount: assignedIds.length - passedCount };
+}
+
+function renderResSummaryList() {
+  const el = document.getElementById('resSummaryList');
+  el.innerHTML = '';
+
+  let students = allStudents;
+  if (resSelectedClassId) students = students.filter(s => s.class_id === resSelectedClassId);
+
+  const groups = allClasses
+    .map(c => ({ cls: c, students: students.filter(s => s.class_id === c.id) }))
+    .filter(g => g.students.length > 0);
+  const noClassStudents = students.filter(s => !s.class_id);
+  if (noClassStudents.length) groups.push({ cls: { id: '', name: '반 없음' }, students: noClassStudents });
+
+  if (!groups.length) {
+    el.innerHTML = '<div style="font-size:13px;color:#999;padding:8px 0">학생이 없습니다.</div>';
+    return;
   }
-  students.sort((a,b)=>a.name.localeCompare(b.name)).forEach(s => {
-    const opt = document.createElement('option'); opt.value = s.id; opt.textContent = s.name;
-    sel.appendChild(opt);
+
+  groups.forEach(g => {
+    const groupDiv = document.createElement('div');
+    groupDiv.className = 'mb-3';
+    const label = document.createElement('b');
+    label.style.fontSize = '13px'; label.style.display = 'block'; label.style.marginBottom = '6px';
+    label.textContent = g.cls.name;
+    groupDiv.appendChild(label);
+
+    g.students.sort((a,b)=>a.name.localeCompare(b.name)).forEach(s => {
+      const stats = studentWsStats(s.id);
+      const row = document.createElement('div');
+      row.className = 'list-item';
+      row.style.cursor = 'pointer';
+      row.innerHTML = `<span class="name">${s.name}</span><span class="meta">배정 ${stats.assignedCount} · 통과 ${stats.passedCount} · 미완료 ${stats.notPassedCount}</span>`;
+      row.onclick = () => openStudentResultDetail(s.id, s.name);
+      groupDiv.appendChild(row);
+    });
+    el.appendChild(groupDiv);
   });
 }
 
-async function loadResultDetail() {
-  const studentId = document.getElementById('resultStudentSelect').value;
+function renderResWorksheetStatus() {
+  const el = document.getElementById('resWorksheetStatus');
+  const worksheetId = document.getElementById('resWorksheetSelect').value;
+  el.innerHTML = '';
+  if (!worksheetId) {
+    el.innerHTML = '<div style="font-size:13px;color:#999;padding:8px 0">학습지를 선택하세요.</div>';
+    return;
+  }
+
+  const assignedStudentIds = resAssignments.filter(a => a.worksheet_id === worksheetId).map(a => a.student_id);
+  if (!assignedStudentIds.length) {
+    el.innerHTML = '<div style="font-size:13px;color:#999;padding:8px 0">배정된 학생이 없습니다.</div>';
+    return;
+  }
+
+  const rows = assignedStudentIds.map(sid => {
+    const student = allStudents.find(s => s.id === sid);
+    const wsAttempts = resAttempts.filter(a => a.student_id === sid && a.worksheet_id === worksheetId).sort((a,b)=>a.attempt_no-b.attempt_no);
+    const passed = wsAttempts.some(a => a.passed);
+    const lastAttempt = wsAttempts[wsAttempts.length - 1];
+    return { student, attemptCount: wsAttempts.length, passed, lastWrong: lastAttempt ? lastAttempt.wrong_count : null };
+  }).filter(r => r.student);
+
+  rows.sort((a,b) => (a.passed === b.passed ? a.student.name.localeCompare(b.student.name) : (a.passed ? 1 : -1)));
+
+  rows.forEach(r => {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    row.style.cursor = 'pointer';
+    const statusHtml = r.attemptCount === 0
+      ? '<span style="color:#999">미시도</span>'
+      : r.passed
+        ? '<span style="color:#16a34a">완료</span>'
+        : '<span style="color:#ef4444">미완료</span>';
+    const wrongHtml = r.lastWrong !== null ? ` · 최근 오답 ${r.lastWrong}개` : '';
+    row.innerHTML = `<span class="name">${r.student.name}</span><span class="meta">${statusHtml} · 시도 ${r.attemptCount}회${wrongHtml}</span>`;
+    row.onclick = () => openStudentResultDetail(r.student.id, r.student.name);
+    el.appendChild(row);
+  });
+}
+
+function openStudentResultDetail(studentId, studentName) {
+  document.getElementById('resStudentDetailCard').classList.remove('hidden');
+  document.getElementById('resStudentDetailTitle').textContent = studentName + ' 학생 상세';
+  loadResultDetail(studentId);
+}
+function closeStudentResultDetail() {
+  document.getElementById('resStudentDetailCard').classList.add('hidden');
+  document.getElementById('resultDetail').innerHTML = '';
+}
+document.getElementById('resDetailCloseBtn').addEventListener('click', closeStudentResultDetail);
+
+async function loadResultDetail(studentId) {
   const detailEl = document.getElementById('resultDetail');
   detailEl.innerHTML = '';
   if (!studentId) return;
@@ -1050,8 +1201,28 @@ async function loadResultDetail() {
 
   Object.values(byWs).forEach(w => {
     const wrap = document.createElement('div'); wrap.className = 'mb-3';
-    let rowsHtml = w.rows.map(a => `<tr><td>${a.attempt_no}차</td><td>${a.wrong_count}개</td><td>${a.passed ? '<span style="color:#16a34a">통과</span>' : '<span style="color:#ef4444">재시도</span>'}</td></tr>`).join('');
-    wrap.innerHTML = `<b style="font-size:13px;">${w.title}</b><table class="mt-2"><thead><tr><th>시도</th><th>틀린 문항 수</th><th>결과</th></tr></thead><tbody>${rowsHtml}</tbody></table>`;
+    const table = document.createElement('table');
+    table.className = 'mt-2';
+    table.innerHTML = '<thead><tr><th>시도</th><th>틀린 문항 수</th><th>결과</th><th></th></tr></thead>';
+    const tbody = document.createElement('tbody');
+    w.rows.forEach(a => {
+      const tr = document.createElement('tr');
+      const detailBtn = document.createElement('button');
+      detailBtn.className = 'btn btn-secondary';
+      detailBtn.style.padding = '4px 10px'; detailBtn.style.fontSize = '12px';
+      detailBtn.textContent = '자세히';
+      detailBtn.onclick = () => openAttemptModal(a.id, w.title, a.attempt_no);
+      tr.innerHTML = `<td>${a.attempt_no}차</td><td>${a.wrong_count}개</td><td>${a.passed ? '<span style="color:#16a34a">통과</span>' : '<span style="color:#ef4444">재시도</span>'}</td>`;
+      const td = document.createElement('td');
+      td.appendChild(detailBtn);
+      tr.appendChild(td);
+      tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    const titleEl = document.createElement('b');
+    titleEl.style.fontSize = '13px'; titleEl.textContent = w.title;
+    wrap.appendChild(titleEl);
+    wrap.appendChild(table);
     detailEl.appendChild(wrap);
   });
   if (Object.keys(byWs).length === 0) {
@@ -1072,15 +1243,62 @@ async function loadResultDetail() {
       if (!tag) return;
       counts[tag.name] = (counts[tag.name]||0) + 1;
     });
+    const total = (wrongAnswers||[]).length;
     const tagStats = Object.entries(counts).sort((a,b)=>b[1]-a[1]);
     if (tagStats.length > 0) {
       const tagWrap = document.createElement('div');
       tagWrap.innerHTML = '<b style="font-size:13px;">유형별 오답 경향</b>' +
-        tagStats.map(([name,count]) => `<div style="display:flex;justify-content:space-between;font-size:13px;padding:4px 0;"><span>${name}</span><span style="color:#999;">${count}회</span></div>`).join('');
+        tagStats.map(([name,count]) => {
+          const pct = total > 0 ? Math.round(count / total * 100) : 0;
+          return `<div style="padding:4px 0;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;"><span>${name}</span><span style="color:#999;">${count}회 (${pct}%)</span></div>
+            <div style="background:#f0f0f0;border-radius:4px;height:6px;margin-top:3px;overflow:hidden"><div style="background:#FEE500;height:100%;width:${pct}%;"></div></div>
+          </div>`;
+        }).join('');
       detailEl.appendChild(tagWrap);
     }
   }
 }
+
+async function openAttemptModal(attemptId, worksheetTitle, attemptNo) {
+  document.getElementById('attemptModalTitle').textContent = `${worksheetTitle} · ${attemptNo}차 채점 결과`;
+  const bodyEl = document.getElementById('attemptModalBody');
+  bodyEl.innerHTML = '<div style="font-size:13px;color:#999">불러오는 중...</div>';
+  document.getElementById('attemptModal').classList.add('show');
+
+  const { data } = await db
+    .from('attempt_answers')
+    .select('submitted_value, is_correct, questions(question_no, type, correct_choice, correct_value, answer_prefix, answer_suffix, tags(name))')
+    .eq('attempt_id', attemptId);
+
+  const rows = (data || []).slice().sort((a,b) => (a.questions?.question_no||0) - (b.questions?.question_no||0));
+  if (!rows.length) {
+    bodyEl.innerHTML = '<div style="font-size:13px;color:#999">채점 데이터가 없습니다.</div>';
+    return;
+  }
+
+  const table = document.createElement('table');
+  table.innerHTML = '<thead><tr><th>번호</th><th>결과</th><th>제출 답</th><th>정답</th><th>유형</th></tr></thead>';
+  const tbody = document.createElement('tbody');
+  rows.forEach(r => {
+    const q = r.questions || {};
+    const submitted = q.type === 'mc' ? (r.submitted_value ? r.submitted_value + '번' : '-') : (r.submitted_value || '-');
+    const correct = q.type === 'mc'
+      ? (q.correct_choice ? q.correct_choice + '번' : '-')
+      : `${q.answer_prefix || ''}${q.correct_value || ''}${q.answer_suffix || ''}`;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${q.question_no ?? '-'}</td><td>${r.is_correct ? '<span style="color:#16a34a">O</span>' : '<span style="color:#ef4444">X</span>'}</td><td>${submitted}</td><td>${correct}</td><td>${q.tags?.name || '-'}</td>`;
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  bodyEl.innerHTML = '';
+  bodyEl.appendChild(table);
+}
+function closeAttemptModal() {
+  document.getElementById('attemptModal').classList.remove('show');
+}
+document.getElementById('attemptModalCloseBtn').addEventListener('click', closeAttemptModal);
+document.getElementById('attemptModalCloseBtn2').addEventListener('click', closeAttemptModal);
 </script>
 </body>
 </html>
