@@ -131,3 +131,24 @@ set password = right(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g'), 4)
 where password is null and length(regexp_replace(coalesce(phone, ''), '[^0-9]', '', 'g')) >= 4;
 
 update students set password = '0000' where password is null or password = '';
+
+-- 학습지 개별 배정용 테이블이 없다면 새로 생성 (예전 worksheet_classes를 대체)
+create table if not exists worksheet_students (
+  worksheet_id uuid references worksheets(id) on delete cascade,
+  student_id uuid references students(id) on delete cascade,
+  primary key (worksheet_id, student_id)
+);
+alter table worksheet_students enable row level security;
+
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'worksheet_students' and policyname = 'allow_all_worksheet_students'
+  ) then
+    create policy "allow_all_worksheet_students" on worksheet_students for all using (true) with check (true);
+  end if;
+end $$;
+
+-- (참고) 예전에 쓰던 worksheet_classes 테이블이 남아있다면 이제 사용하지 않으니 지워도 됩니다.
+-- drop table if exists worksheet_classes;

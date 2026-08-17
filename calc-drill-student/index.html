@@ -5,12 +5,18 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>계산 학습</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
 <style>
+  :root {
+    --brand:#FF7A45; --brand-dark:#C2410C; --brand-light:#FFF1E8;
+    --bg-page:#FBF7F5; --text-main:#1F2937; --text-sub:#6B7280;
+  }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; background: #f0f0f0; min-height: 100vh; }
-  .header { background: #FEE500; padding: 16px 20px; position: sticky; top: 0; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,.1); display:flex; align-items:center; justify-content:space-between; }
-  .header-title { font-size: 17px; font-weight: 700; color: #3C1E1E; }
-  .header-sub { font-size: 12px; color: #7a5a2a; }
+  body { font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; background: var(--bg-page); min-height: 100vh; }
+  .header { background: #fff; padding: 16px 20px; position: sticky; top: 0; z-index: 100; border-bottom:1px solid #eee; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .header-logo { width:32px; height:32px; border-radius:9px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0; }
+  .header-title { font-size: 17px; font-weight: 700; color: var(--text-main); }
+  .header-sub { font-size: 12px; color: var(--text-sub); }
   .container { padding: 16px; max-width: 480px; margin: 0 auto; }
   .card { background: #fff; border-radius: 16px; padding: 20px; margin-bottom: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
   .card-title { font-size: 14px; font-weight: 700; color: #333; margin-bottom: 14px; }
@@ -20,10 +26,10 @@
     font-size: 14px; outline: none; font-family: inherit; -webkit-appearance:none; appearance:none;
   }
   select { background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none'/%3E%3C/svg%3E") no-repeat right 14px center; background-size: 12px; }
-  select:focus, input:focus { border-color: #FEE500; }
+  select:focus, input:focus { border-color: var(--brand); }
   .mb-3 { margin-bottom: 12px; }
   .btn { width: 100%; padding: 15px; border: none; border-radius: 12px; font-size: 15px; font-weight: 700; cursor: pointer; }
-  .btn-primary { background: #FEE500; color: #3C1E1E; }
+  .btn-primary { background: var(--brand); color: #fff; }
   .btn-primary:disabled { background: #e0e0e0; color: #999; cursor: not-allowed; }
   .btn-secondary { background: #fff; color: #555; border: 1.5px solid #ddd; }
   .ws-item { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-radius:12px; background:#fafafa; margin-bottom:8px; cursor:pointer; }
@@ -31,19 +37,19 @@
   .ws-title { font-size:14px; font-weight:600; color:#333; }
   .ws-status { font-size:12px; }
   .status-pass { color:#16a34a; }
-  .status-progress { color:#ea580c; }
+  .status-progress { color:var(--brand-dark); }
   .status-new { color:#999; }
   .q-card { background:#fff; border-radius:14px; padding:16px; margin-bottom:10px; box-shadow:0 2px 10px rgba(0,0,0,.05); }
-  .q-no { font-size:13px; font-weight:700; color:#3C1E1E; margin-bottom:10px; }
+  .q-no { font-size:13px; font-weight:700; color:var(--brand-dark); margin-bottom:10px; }
   .choice-row { display:flex; gap:8px; flex-wrap:wrap; }
   .choice-btn { width:42px; height:42px; border-radius:50%; border:2px solid #ddd; background:#fff; font-size:14px; font-weight:700; cursor:pointer; color:#555; }
-  .choice-btn.selected { border-color:#FEE500; background:#FEE500; color:#3C1E1E; }
+  .choice-btn.selected { border-color:var(--brand); background:var(--brand); color:#fff; }
   .symbol-row { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
   .symbol-btn { width:34px; height:34px; border-radius:8px; border:1px solid #ddd; background:#fafafa; font-size:13px; cursor:pointer; color:#444; }
-  .symbol-btn:active { background:#FEE500; }
+  .symbol-btn:active { background:var(--brand-light); }
   .top-bar { display:flex; align-items:center; gap:10px; margin-bottom:14px; }
   .back-link { font-size:13px; color:#666; cursor:pointer; }
-  .attempt-badge { font-size:12px; color:#7a5a2a; background:#fffde7; padding:4px 10px; border-radius:999px; margin-left:auto; }
+  .attempt-badge { font-size:12px; color:var(--brand-dark); background:var(--brand-light); padding:4px 10px; border-radius:999px; margin-left:auto; }
   .overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.55); z-index:999; align-items:center; justify-content:center; }
   .overlay.show { display:flex; }
   .modal { background:#fff; border-radius:20px; padding:32px 24px; text-align:center; max-width:320px; width:88%; }
@@ -57,9 +63,12 @@
 <body>
 
 <div class="header">
-  <div>
-    <div class="header-title">계산 학습</div>
-    <div class="header-sub" id="headerSub">틀리면 다시, 맞을 때까지</div>
+  <div style="display:flex;align-items:center;gap:10px">
+    <span class="header-logo">계산</span>
+    <div>
+      <div class="header-title">계산 학습</div>
+      <div class="header-sub" id="headerSub">틀리면 다시, 맞을 때까지</div>
+    </div>
   </div>
 </div>
 
