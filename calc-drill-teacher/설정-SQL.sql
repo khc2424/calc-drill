@@ -35,9 +35,11 @@ create table tags (
 );
 
 -- 학습지
+-- chunk_size: 몇 문항씩 끊어서 풀게 할지 (null/0 = 전체 한번에)
 create table worksheets (
   id uuid default gen_random_uuid() primary key,
   title text not null,
+  chunk_size int,
   created_at timestamptz default now()
 );
 
@@ -65,10 +67,12 @@ create table worksheet_students (
 );
 
 -- 시도 기록
+-- chunk_index: 몇 번째 묶음(구간)에 대한 시도인지 (0부터 시작, 묶음 미사용 학습지는 항상 0)
 create table attempts (
   id uuid default gen_random_uuid() primary key,
   student_id uuid references students(id) on delete cascade,
   worksheet_id uuid references worksheets(id) on delete cascade,
+  chunk_index int not null default 0,
   attempt_no int not null,
   wrong_count int not null default 0,
   passed boolean not null default false,
@@ -152,3 +156,7 @@ end $$;
 
 -- (참고) 예전에 쓰던 worksheet_classes 테이블이 남아있다면 이제 사용하지 않으니 지워도 됩니다.
 -- drop table if exists worksheet_classes;
+
+-- 학습지를 몇 문항씩 끊어서 풀게 할지 설정하는 기능
+alter table worksheets add column if not exists chunk_size int;
+alter table attempts add column if not exists chunk_index int not null default 0;

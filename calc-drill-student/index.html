@@ -339,7 +339,7 @@ async function loadWorksheetList() {
 
   const { data: ws } = await db
     .from('worksheet_students')
-    .select('worksheet_id, worksheets(id, title)')
+    .select('worksheet_id, worksheets(id, title, chunk_size, questions(id))')
     .eq('student_id', currentStudent.id);
 
   const worksheets = (ws || []).map(r => r.worksheets).filter(Boolean);
@@ -349,46 +349,88 @@ async function loadWorksheetList() {
   const ids = worksheets.map(w => w.id);
   const { data: attempts } = await db
     .from('attempts')
-    .select('worksheet_id, attempt_no, passed')
+    .select('worksheet_id, chunk_index, attempt_no, passed')
     .eq('student_id', currentStudent.id)
     .in('worksheet_id', ids);
 
   worksheets.forEach(w => {
     const rel = (attempts || []).filter(a => a.worksheet_id === w.id);
     const count = rel.length;
-    const passed = rel.some(a => a.passed);
+    const chunkSize = w.chunk_size || 0;
+    const totalQ = (w.questions || []).length;
+    const totalChunks = chunkSize > 0 ? Math.max(1, Math.ceil(totalQ / chunkSize)) : 1;
+    const passedChunks = new Set(rel.filter(a => a.passed).map(a => a.chunk_index || 0));
+    const fullyPassed = passedChunks.size >= totalChunks;
+
     const div = document.createElement('div');
     div.className = 'ws-item';
     let statusHtml = '<span class="ws-status status-new">아직 안 품</span>';
-    if (passed) statusHtml = `<span class="ws-status status-pass">통과 · ${count}회</span>`;
-    else if (count > 0) statusHtml = `<span class="ws-status status-progress">${count}회 시도 중</span>`;
+    if (fullyPassed) statusHtml = `<span class="ws-status status-pass">통과 · ${count}회</span>`;
+    else if (count > 0) {
+      statusHtml = totalChunks > 1
+        ? `<span class="ws-status status-progress">${passedChunks.size}/${totalChunks}구간 완료 · ${count}회 시도</span>`
+        : `<span class="ws-status status-progress">${count}회 시도 중</span>`;
+    }
     div.innerHTML = `<span class="ws-title">${w.title}</span>${statusHtml}`;
-    div.addEventListener('click', () => openWorksheet(w.id, w.title));
+    div.addEventListener('click', () => openWorksheet(w.id, w.title, w.chunk_size));
     listEl.appendChild(div);
   });
 }
 
-async function openWorksheet(id, title) {
+async function openWorksheet(id, title, chunkSize) {
   const { data: questions } = await db
     .from('questions')
     .select('*')
     .eq('worksheet_id', id)
     .order('question_no');
 
-  currentWorksheet = { id, title, questions: questions || [] };
+  const allQuestions = questions || [];
+  const size = chunkSize || 0;
+  const totalChunks = size > 0 ? Math.max(1, Math.ceil(allQuestions.length / size)) : 1;
+
+  let startChunkIndex = 0;
+  if (size > 0) {
+    const { data: passedAttempts } = await db
+      .from('attempts')
+      .select('chunk_index')
+      .eq('student_id', currentStudent.id)
+      .eq('worksheet_id', id)
+      .eq('passed', true);
+    const passedChunks = new Set((passedAttempts || []).map(a => a.chunk_index || 0));
+    startChunkIndex = 0;
+    for (let c = 0; c < totalChunks; c++) {
+      if (!passedChunks.has(c)) { startChunkIndex = c; break; }
+      startChunkIndex = c;
+    }
+    if (passedChunks.size >= totalChunks) startChunkIndex = 0; // 전부 통과했으면 처음부터 다시
+  }
+
+  currentWorksheet = { id, title, chunkSize: size, totalChunks, allQuestions };
+  await startChunk(startChunkIndex);
+  showScreen('screenQuiz');
+}
+
+async function startChunk(chunkIndex) {
+  currentWorksheet.currentChunkIndex = chunkIndex;
+  const size = currentWorksheet.chunkSize;
+  currentWorksheet.questions = size > 0
+    ? currentWorksheet.allQuestions.slice(chunkIndex * size, chunkIndex * size + size)
+    : currentWorksheet.allQuestions;
   answers = {};
 
   const { count } = await db
     .from('attempts')
     .select('id', { count: 'exact', head: true })
     .eq('student_id', currentStudent.id)
-    .eq('worksheet_id', id);
+    .eq('worksheet_id', currentWorksheet.id)
+    .eq('chunk_index', chunkIndex);
 
-  document.getElementById('quizTitle').textContent = title;
+  document.getElementById('quizTitle').textContent = currentWorksheet.totalChunks > 1
+    ? `${currentWorksheet.title} (${chunkIndex * size + 1}~${Math.min((chunkIndex + 1) * size, currentWorksheet.allQuestions.length)}번)`
+    : currentWorksheet.title;
   document.getElementById('attemptBadge').textContent = `${(count ?? 0) + 1}차 시도`;
   renderQuizForm();
   document.getElementById('quizError').classList.add('hidden');
-  showScreen('screenQuiz');
 }
 
 const SYMBOL_BUTTONS = [
@@ -507,17 +549,19 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     return { question_id: q.id, submitted_value: String(answers[q.id]), is_correct: ok };
   });
 
+  const chunkIndex = currentWorksheet.currentChunkIndex || 0;
   const { count } = await db
     .from('attempts')
     .select('id', { count: 'exact', head: true })
     .eq('student_id', currentStudent.id)
-    .eq('worksheet_id', currentWorksheet.id);
+    .eq('worksheet_id', currentWorksheet.id)
+    .eq('chunk_index', chunkIndex);
   const attemptNo = (count ?? 0) + 1;
   const passed = wrongCount === 0;
 
   const { data: attempt, error } = await db
     .from('attempts')
-    .insert({ student_id: currentStudent.id, worksheet_id: currentWorksheet.id, attempt_no: attemptNo, wrong_count: wrongCount, passed })
+    .insert({ student_id: currentStudent.id, worksheet_id: currentWorksheet.id, chunk_index: chunkIndex, attempt_no: attemptNo, wrong_count: wrongCount, passed })
     .select().single();
 
   if (error) {
@@ -530,31 +574,42 @@ document.getElementById('submitBtn').addEventListener('click', async () => {
     results.map(r => ({ ...r, attempt_id: attempt.id }))
   );
 
-  showResult(wrongCount, passed, attemptNo);
+  const isLastChunk = chunkIndex >= currentWorksheet.totalChunks - 1;
+  showResult(wrongCount, passed, attemptNo, isLastChunk);
 });
 
-function showResult(wrongCount, passed, attemptNo) {
+function showResult(wrongCount, passed, attemptNo, isLastChunk) {
   const overlay = document.getElementById('resultOverlay');
   const icon = document.getElementById('resultIcon');
   const title = document.getElementById('resultTitle');
   const sub = document.getElementById('resultSub');
   const btn = document.getElementById('resultBtn');
 
-  if (passed) {
+  if (passed && !isLastChunk) {
+    icon.textContent = '🎉';
+    title.textContent = '이 구간 통과!';
+    sub.textContent = `${attemptNo}차 시도만에 통과했습니다. 다음 구간으로 넘어갈게요.`;
+    btn.textContent = '다음 문제 풀기';
+    btn.onclick = () => {
+      overlay.classList.remove('show');
+      startChunk(currentWorksheet.currentChunkIndex + 1);
+    };
+  } else if (passed) {
     icon.textContent = '🎉';
     title.textContent = '전부 맞았어요!';
-    sub.textContent = `${attemptNo}차 시도만에 통과했습니다.`;
+    sub.textContent = `${attemptNo}차 시도만에 학습지를 모두 완료했습니다.`;
     btn.textContent = '목록으로';
     btn.onclick = () => { overlay.classList.remove('show'); showScreen('screenList'); loadWorksheetList(); };
   } else {
     icon.textContent = '✏️';
     title.textContent = `총 ${wrongCount}문항 틀렸어요`;
-    sub.textContent = '어떤 문항인지는 알려드리지 않아요. 처음부터 다시 풀어봐요.';
+    sub.textContent = currentWorksheet.totalChunks > 1
+      ? '어떤 문항인지는 알려드리지 않아요. 이 구간을 처음부터 다시 풀어봐요.'
+      : '어떤 문항인지는 알려드리지 않아요. 처음부터 다시 풀어봐요.';
     btn.textContent = '다시 풀기';
     btn.onclick = () => {
       overlay.classList.remove('show');
-      answers = {};
-      openWorksheet(currentWorksheet.id, currentWorksheet.title);
+      startChunk(currentWorksheet.currentChunkIndex);
     };
   }
   overlay.classList.add('show');

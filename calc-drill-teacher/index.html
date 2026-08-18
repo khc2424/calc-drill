@@ -558,7 +558,8 @@ function renderWorksheetsList() {
     const meta = document.createElement('div');
     meta.className = 'meta';
     meta.style.marginTop = '4px';
-    meta.textContent = `출제일 ${dateStr} · 반 ${classNames.length ? classNames.join(', ') : '미배정'} · 학생 ${studentNames.length ? studentNames.join(', ') : '없음'}`;
+    const chunkLabel = w.chunk_size ? ` · ${w.chunk_size}문항씩` : '';
+    meta.textContent = `출제일 ${dateStr} · 반 ${classNames.length ? classNames.join(', ') : '미배정'} · 학생 ${studentNames.length ? studentNames.join(', ') : '없음'}${chunkLabel}`;
     div.appendChild(meta);
 
     const btns = document.createElement('div');
@@ -684,7 +685,7 @@ document.getElementById('rosterModalSaveBtn').addEventListener('click', async ()
 });
 async function cloneWorksheet(id) {
   const { data: original } = await db.from('worksheets').select('*, questions(*)').eq('id', id).single();
-  const { data: clone } = await db.from('worksheets').insert({ title: original.title + ' (복사본)' }).select().single();
+  const { data: clone } = await db.from('worksheets').insert({ title: original.title + ' (복사본)', chunk_size: original.chunk_size || null }).select().single();
   if (original.questions?.length) {
     await db.from('questions').insert(original.questions.map(q => ({
       worksheet_id: clone.id, question_no: q.question_no, type: q.type,
@@ -708,9 +709,11 @@ async function openWorksheetEditor(id) {
 
   let title = '';
   let assignedStudentIds = [];
+  let chunkSize = 0;
   if (id) {
     const { data: w } = await db.from('worksheets').select('*, questions(*)').eq('id', id).single();
     title = w.title;
+    chunkSize = w.chunk_size || 0;
     editorQuestions = (w.questions || []).sort((a,b)=>a.question_no-b.question_no).map(q => ({
       type: q.type, correct_choice: q.correct_choice, correct_value: q.correct_value || '',
       answer_prefix: q.answer_prefix || '', answer_suffix: q.answer_suffix || '',
@@ -722,11 +725,11 @@ async function openWorksheetEditor(id) {
     editorQuestions = [emptyQuestion()];
   }
 
-  renderEditor(title, assignedStudentIds);
+  renderEditor(title, assignedStudentIds, chunkSize);
 }
 function emptyQuestion() { return { type:'mc', correct_choice:1, correct_value:'', answer_prefix:'', answer_suffix:'', tolerance:0, tag_id:'' }; }
 
-function renderEditor(title, assignedStudentIds) {
+function renderEditor(title, assignedStudentIds, chunkSize) {
   const view = document.getElementById('wsEditorView');
   view.innerHTML = '';
 
@@ -742,6 +745,18 @@ function renderEditor(title, assignedStudentIds) {
         <input type="number" id="wsQCount" min="1" value="${editorQuestions.length}">
       </div>
     </div>
+    <div class="row mb-3">
+      <div style="flex:1">
+        <label>묶음 크기 (몇 문항씩 끊어서 풀게 할지)</label>
+        <select id="wsChunkSize">
+          <option value="0">전체 한번에</option>
+          <option value="5">5문항씩</option>
+          <option value="10">10문항씩</option>
+          <option value="20">20문항씩</option>
+        </select>
+        <div style="font-size:11px;color:#999;margin-top:4px">예: 40문항을 10문항씩으로 하면, 1~10번을 다 맞을 때까지 반복한 뒤 11~20번으로 넘어갑니다.</div>
+      </div>
+    </div>
     <label>실수 유형 태그 추가</label>
     <div class="row mb-3">
       <input type="text" id="newTagInput" placeholder="예: 부호 실수">
@@ -749,6 +764,7 @@ function renderEditor(title, assignedStudentIds) {
     </div>
   `;
   view.appendChild(card);
+  document.getElementById('wsChunkSize').value = String(chunkSize || 0);
 
   const pdfCard = document.createElement('div');
   pdfCard.className = 'card';
@@ -847,11 +863,16 @@ function renderEditor(title, assignedStudentIds) {
   const errDiv = document.createElement('div'); errDiv.id = 'wsErr'; errDiv.className='err hidden';
   view.appendChild(errDiv);
 
-  document.getElementById('wsQCount').addEventListener('change', (e) => {
-    const n = Math.max(1, Number(e.target.value) || 1);
+  function setQuestionCount(n) {
+    n = Math.max(1, Number(n) || 1);
+    document.getElementById('wsQCount').value = n;
     while (editorQuestions.length < n) editorQuestions.push(emptyQuestion());
     while (editorQuestions.length > n) editorQuestions.pop();
     renderQuestionBoxes();
+  }
+  document.getElementById('wsQCount').addEventListener('change', (e) => setQuestionCount(e.target.value));
+  document.querySelectorAll('.qcount-quick').forEach(btn => {
+    btn.addEventListener('click', () => setQuestionCount(btn.dataset.n));
   });
   document.getElementById('addTagBtn').addEventListener('click', async () => {
     const input = document.getElementById('newTagInput');
@@ -1000,12 +1021,14 @@ async function saveWorksheet(assignedStudentIds) {
     }
   }
 
+  const chunkSize = Number(document.getElementById('wsChunkSize').value) || 0;
+
   let worksheetId = editorWorksheetId;
   if (worksheetId) {
-    await db.from('worksheets').update({ title }).eq('id', worksheetId);
+    await db.from('worksheets').update({ title, chunk_size: chunkSize || null }).eq('id', worksheetId);
     await db.from('questions').delete().eq('worksheet_id', worksheetId);
   } else {
-    const { data: w, error } = await db.from('worksheets').insert({ title }).select().single();
+    const { data: w, error } = await db.from('worksheets').insert({ title, chunk_size: chunkSize || null }).select().single();
     if (error) { errEl.textContent = '저장 실패: ' + error.message; errEl.classList.remove('hidden'); return; }
     worksheetId = w.id;
   }
@@ -1085,10 +1108,29 @@ function populateResWorksheetSelect() {
 async function loadResultsOverviewData() {
   const [{ data: wsStudents }, { data: attempts }] = await Promise.all([
     db.from('worksheet_students').select('worksheet_id, student_id'),
-    db.from('attempts').select('id, student_id, worksheet_id, attempt_no, wrong_count, passed')
+    db.from('attempts').select('id, student_id, worksheet_id, chunk_index, attempt_no, wrong_count, passed, created_at')
   ]);
   resAssignments = wsStudents || [];
   resAttempts = attempts || [];
+}
+
+// 학습지의 총 묶음(구간) 개수 (묶음 미사용이면 1)
+function worksheetTotalChunks(worksheetId) {
+  const w = allWorksheetsData.find(w2 => w2.id === worksheetId);
+  if (!w) return 1;
+  const chunkSize = w.chunk_size || 0;
+  const totalQ = (w.questions || []).length;
+  return chunkSize > 0 ? Math.max(1, Math.ceil(totalQ / chunkSize)) : 1;
+}
+
+// 학생이 학습지의 모든 묶음을 통과했는지
+function isWorksheetFullyPassed(studentId, worksheetId) {
+  const totalChunks = worksheetTotalChunks(worksheetId);
+  for (let c = 0; c < totalChunks; c++) {
+    const has = resAttempts.some(a => a.student_id === studentId && a.worksheet_id === worksheetId && (a.chunk_index || 0) === c && a.passed);
+    if (!has) return false;
+  }
+  return true;
 }
 
 function setResView(view) {
@@ -1116,8 +1158,7 @@ document.getElementById('resWorksheetSelect').addEventListener('change', renderR
 
 function studentWsStats(studentId) {
   const assignedIds = [...new Set(resAssignments.filter(a => a.student_id === studentId).map(a => a.worksheet_id))];
-  const passedIds = new Set(resAttempts.filter(a => a.student_id === studentId && a.passed).map(a => a.worksheet_id));
-  const passedCount = assignedIds.filter(id => passedIds.has(id)).length;
+  const passedCount = assignedIds.filter(id => isWorksheetFullyPassed(studentId, id)).length;
   return { assignedCount: assignedIds.length, passedCount, notPassedCount: assignedIds.length - passedCount };
 }
 
@@ -1175,12 +1216,15 @@ function renderResWorksheetStatus() {
     return;
   }
 
+  const totalChunks = worksheetTotalChunks(worksheetId);
   const rows = assignedStudentIds.map(sid => {
     const student = allStudents.find(s => s.id === sid);
-    const wsAttempts = resAttempts.filter(a => a.student_id === sid && a.worksheet_id === worksheetId).sort((a,b)=>a.attempt_no-b.attempt_no);
-    const passed = wsAttempts.some(a => a.passed);
+    const wsAttempts = resAttempts.filter(a => a.student_id === sid && a.worksheet_id === worksheetId)
+      .sort((a,b) => new Date(a.created_at) - new Date(b.created_at));
+    const passed = isWorksheetFullyPassed(sid, worksheetId);
+    const passedChunkCount = new Set(wsAttempts.filter(a=>a.passed).map(a=>a.chunk_index||0)).size;
     const lastAttempt = wsAttempts[wsAttempts.length - 1];
-    return { student, attemptCount: wsAttempts.length, passed, lastWrong: lastAttempt ? lastAttempt.wrong_count : null };
+    return { student, attemptCount: wsAttempts.length, passed, passedChunkCount, lastWrong: lastAttempt ? lastAttempt.wrong_count : null };
   }).filter(r => r.student);
 
   rows.sort((a,b) => (a.passed === b.passed ? a.student.name.localeCompare(b.student.name) : (a.passed ? 1 : -1)));
@@ -1194,8 +1238,9 @@ function renderResWorksheetStatus() {
       : r.passed
         ? '<span style="color:#16a34a">완료</span>'
         : '<span style="color:#ef4444">미완료</span>';
+    const chunkHtml = totalChunks > 1 ? ` · ${r.passedChunkCount}/${totalChunks}구간 완료` : '';
     const wrongHtml = r.lastWrong !== null ? ` · 최근 오답 ${r.lastWrong}개` : '';
-    row.innerHTML = `<span class="name">${r.student.name}</span><span class="meta">${statusHtml} · 시도 ${r.attemptCount}회${wrongHtml}</span>`;
+    row.innerHTML = `<span class="name">${r.student.name}</span><span class="meta">${statusHtml}${chunkHtml} · 시도 ${r.attemptCount}회${wrongHtml}</span>`;
     row.onclick = () => openStudentResultDetail(r.student.id, r.student.name);
     el.appendChild(row);
   });
@@ -1212,6 +1257,20 @@ function closeStudentResultDetail() {
 }
 document.getElementById('resDetailCloseBtn').addEventListener('click', closeStudentResultDetail);
 
+function buildAttemptRow(a, worksheetTitle) {
+  const tr = document.createElement('tr');
+  const detailBtn = document.createElement('button');
+  detailBtn.className = 'btn btn-secondary';
+  detailBtn.style.padding = '4px 10px'; detailBtn.style.fontSize = '12px';
+  detailBtn.textContent = '자세히';
+  detailBtn.onclick = () => openAttemptModal(a.id, worksheetTitle, a.attempt_no, a.chunk_index || 0);
+  tr.innerHTML = `<td>${a.attempt_no}차</td><td>${a.wrong_count}개</td><td>${a.passed ? '<span style="color:#16a34a">통과</span>' : '<span style="color:#ef4444">재시도</span>'}</td>`;
+  const td = document.createElement('td');
+  td.appendChild(detailBtn);
+  tr.appendChild(td);
+  return tr;
+}
+
 async function loadResultDetail(studentId) {
   const detailEl = document.getElementById('resultDetail');
   detailEl.innerHTML = '';
@@ -1219,9 +1278,9 @@ async function loadResultDetail(studentId) {
 
   const { data: attempts } = await db
     .from('attempts')
-    .select('id, worksheet_id, attempt_no, wrong_count, passed, worksheets(title)')
+    .select('id, worksheet_id, chunk_index, attempt_no, wrong_count, passed, created_at, worksheets(title)')
     .eq('student_id', studentId)
-    .order('attempt_no');
+    .order('created_at');
 
   const byWs = {};
   (attempts||[]).forEach(a => {
@@ -1230,30 +1289,52 @@ async function loadResultDetail(studentId) {
     byWs[key].rows.push(a);
   });
 
-  Object.values(byWs).forEach(w => {
+  Object.entries(byWs).forEach(([worksheetId, w]) => {
     const wrap = document.createElement('div'); wrap.className = 'mb-3';
-    const table = document.createElement('table');
-    table.className = 'mt-2';
-    table.innerHTML = '<thead><tr><th>시도</th><th>틀린 문항 수</th><th>결과</th><th></th></tr></thead>';
-    const tbody = document.createElement('tbody');
-    w.rows.forEach(a => {
-      const tr = document.createElement('tr');
-      const detailBtn = document.createElement('button');
-      detailBtn.className = 'btn btn-secondary';
-      detailBtn.style.padding = '4px 10px'; detailBtn.style.fontSize = '12px';
-      detailBtn.textContent = '자세히';
-      detailBtn.onclick = () => openAttemptModal(a.id, w.title, a.attempt_no);
-      tr.innerHTML = `<td>${a.attempt_no}차</td><td>${a.wrong_count}개</td><td>${a.passed ? '<span style="color:#16a34a">통과</span>' : '<span style="color:#ef4444">재시도</span>'}</td>`;
-      const td = document.createElement('td');
-      td.appendChild(detailBtn);
-      tr.appendChild(td);
-      tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
     const titleEl = document.createElement('b');
     titleEl.style.fontSize = '13px'; titleEl.textContent = w.title;
     wrap.appendChild(titleEl);
-    wrap.appendChild(table);
+
+    const chunkSize = allWorksheetsData.find(w2 => w2.id === worksheetId)?.chunk_size || 0;
+    const totalQ = (allWorksheetsData.find(w2 => w2.id === worksheetId)?.questions || []).length;
+
+    if (chunkSize > 0) {
+      const byChunk = {};
+      w.rows.forEach(a => {
+        const c = a.chunk_index || 0;
+        if (!byChunk[c]) byChunk[c] = [];
+        byChunk[c].push(a);
+      });
+      Object.keys(byChunk).map(Number).sort((a,b)=>a-b).forEach(c => {
+        const start = c * chunkSize + 1;
+        const end = Math.min((c + 1) * chunkSize, totalQ || (c + 1) * chunkSize);
+        const rows = byChunk[c];
+        const chunkPassed = rows.some(a => a.passed);
+        const chunkWrap = document.createElement('div'); chunkWrap.className = 'mt-2';
+        const chunkTitle = document.createElement('div');
+        chunkTitle.style.fontSize = '12px'; chunkTitle.style.fontWeight = '600'; chunkTitle.style.color = '#555';
+        chunkTitle.innerHTML = `${start}~${end}번 ${chunkPassed ? '<span style="color:#16a34a">(완료)</span>' : '<span style="color:#ef4444">(진행중)</span>'}`;
+        chunkWrap.appendChild(chunkTitle);
+
+        const table = document.createElement('table');
+        table.className = 'mt-2';
+        table.innerHTML = '<thead><tr><th>시도</th><th>틀린 문항 수</th><th>결과</th><th></th></tr></thead>';
+        const tbody = document.createElement('tbody');
+        rows.forEach(a => tbody.appendChild(buildAttemptRow(a, w.title)));
+        table.appendChild(tbody);
+        chunkWrap.appendChild(table);
+        wrap.appendChild(chunkWrap);
+      });
+    } else {
+      const table = document.createElement('table');
+      table.className = 'mt-2';
+      table.innerHTML = '<thead><tr><th>시도</th><th>틀린 문항 수</th><th>결과</th><th></th></tr></thead>';
+      const tbody = document.createElement('tbody');
+      w.rows.forEach(a => tbody.appendChild(buildAttemptRow(a, w.title)));
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+    }
+
     detailEl.appendChild(wrap);
   });
   if (Object.keys(byWs).length === 0) {
@@ -1306,6 +1387,11 @@ async function openAttemptModal(attemptId, worksheetTitle, attemptNo) {
   if (!rows.length) {
     bodyEl.innerHTML = '<div style="font-size:13px;color:#999">채점 데이터가 없습니다.</div>';
     return;
+  }
+
+  const qNos = rows.map(r => r.questions?.question_no).filter(n => n != null);
+  if (qNos.length > 1) {
+    document.getElementById('attemptModalTitle').textContent = `${worksheetTitle} (${Math.min(...qNos)}~${Math.max(...qNos)}번) · ${attemptNo}차 채점 결과`;
   }
 
   const table = document.createElement('table');
