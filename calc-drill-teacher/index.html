@@ -6,6 +6,14 @@
 <title>선생님 페이지</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css" />
+<script>
+  window.MathJax = {
+    tex: { inlineMath: [['$', '$'], ['\\(', '\\)']] },
+    svg: { fontCache: 'global' }
+  };
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.js" id="mathjax-script" async></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
   :root {
     --brand:#FF7A45; --brand-dark:#C2410C; --brand-light:#FFF1E8;
@@ -88,6 +96,7 @@
     <div class="tab active" data-tab="worksheets">학습지 관리</div>
     <div class="tab" data-tab="results">결과 보기</div>
     <div class="tab" data-tab="students">학생 관리</div>
+    <div class="tab" data-tab="bank">문제은행</div>
   </div>
 
   <div class="container">
@@ -165,6 +174,47 @@
       </div>
     </div>
 
+    <!-- 문제은행 -->
+    <div id="tabBank" class="hidden">
+      <div class="card">
+        <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+          <span>문제은행</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-secondary" id="bankTrashBtn">휴지통</button>
+            <button class="btn btn-secondary" id="curriculumManageBtn">단원 관리</button>
+            <button class="btn btn-secondary" id="bankDifficultySuggestBtn">난이도 제안</button>
+            <button class="btn btn-primary" id="bankAddBtn">+ 문제 추가</button>
+          </div>
+        </div>
+        <div class="grid2 mb-2">
+          <select id="bankGradeFilter"><option value="">전체 학년</option></select>
+          <select id="bankSubjectFilter"><option value="">전체 과목</option></select>
+        </div>
+        <div class="grid2 mb-2">
+          <select id="bankMajorFilter"><option value="">전체 대단원</option></select>
+          <select id="bankMinorFilter"><option value="">전체 중단원</option></select>
+        </div>
+        <div class="grid2 mb-2">
+          <select id="bankTypeFilter"><option value="">전체 유형</option></select>
+          <select id="bankOriginFilter">
+            <option value="">원본+쌍둥이</option>
+            <option value="origin">원본만</option>
+            <option value="twin">쌍둥이만</option>
+          </select>
+        </div>
+        <div class="grid2 mb-3">
+          <select id="bankStatusFilter">
+            <option value="승인">승인됨</option>
+            <option value="검토대기" id="bankPendingOption">검토대기</option>
+            <option value="반려">반려</option>
+            <option value="">전체 상태</option>
+          </select>
+          <input type="text" id="bankSearchInput" placeholder="키워드 검색">
+        </div>
+        <div id="bankList"></div>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -215,6 +265,210 @@
   </div>
 </div>
 
+<!-- 문제은행: 문제 추가 (PDF 업로드 / 직접 입력) -->
+<div class="modal-ov" id="bankAddModal">
+  <div class="modal-bx" style="max-width:480px">
+    <div class="modal-hd"><b id="bankAddModalTitle">문제 추가</b><button id="bankAddModalCloseBtn">&times;</button></div>
+    <div class="modal-bd">
+      <label>중단원 (필수 — 먼저 단원 관리에서 만들어두세요)</label>
+      <select id="bankAddUnitSelect" class="mb-3"><option value="">중단원 선택</option></select>
+
+      <div id="bankTwinAiArea" class="hidden mb-3">
+        <button class="btn btn-primary btn-block" id="bankTwinAiBtn">AI로 쌍둥이 문제 자동 생성</button>
+        <div id="bankTwinAiStatus" style="font-size:12px;color:#999;margin-top:6px;"></div>
+      </div>
+
+      <label>PDF로 자동 추출 (AI, 검토 필요)</label>
+      <input type="file" accept="application/pdf" id="bankPdfInput" class="mb-2">
+      <button class="btn btn-secondary mb-3" id="bankPdfParseBtn">PDF에서 문제 추출</button>
+      <div id="bankPdfStatus" style="font-size:13px;margin-bottom:10px"></div>
+
+      <label>또는 직접 입력</label>
+      <textarea id="bankManualText" rows="3" placeholder="문제 지문 (LaTeX는 $...$ 로 감싸기)" class="mb-2" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:inherit;font-size:14px;"></textarea>
+      <div class="radio-row">
+        <label style="display:flex;align-items:center;gap:4px;"><input type="radio" name="bankManualType" value="mc" checked> 객관식(5지선다)</label>
+        <label style="display:flex;align-items:center;gap:4px;"><input type="radio" name="bankManualType" value="short"> 주관식</label>
+      </div>
+      <div id="bankManualMcArea" class="mb-2">
+        <label>정답 번호</label>
+        <div class="choice-select" id="bankManualChoiceSelect">
+          <button type="button" data-v="1">1</button><button type="button" data-v="2">2</button>
+          <button type="button" data-v="3">3</button><button type="button" data-v="4">4</button>
+          <button type="button" data-v="5">5</button>
+        </div>
+      </div>
+      <div id="bankManualShortArea" class="mb-2 hidden">
+        <label>정답 값</label>
+        <input type="text" id="bankManualValue" placeholder="예: 3/4" class="mb-2">
+      </div>
+      <button class="btn btn-primary btn-block" id="bankManualSaveBtn">직접 입력한 문제 저장</button>
+      <div class="err hidden" id="bankAddErr"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: 정답률 기반 난이도 재조정 제안 -->
+<div class="modal-ov" id="difficultySuggestModal">
+  <div class="modal-bx" style="max-width:520px">
+    <div class="modal-hd"><b>난이도 재조정 제안</b><button id="difficultySuggestCloseBtn">&times;</button></div>
+    <div class="modal-bd" id="difficultySuggestBody" style="max-height:65vh;overflow-y:auto">
+      <div style="font-size:12px;color:#999;margin-bottom:10px">학생들이 실제로 푼 기록(시도 5회 이상)을 바탕으로, 현재 난이도 표시와 실제 오답률이 크게 어긋나는 문제만 보여줍니다. 적용은 선생님이 직접 눌러야 반영됩니다.</div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="difficultySuggestCloseBtn2">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: 학습지에 문제 가져오기 (검색해서 선택) -->
+<div class="modal-ov" id="bankPickerModal">
+  <div class="modal-bx" style="max-width:560px">
+    <div class="modal-hd"><b>문제은행에서 가져오기</b><button id="bankPickerCloseBtn">&times;</button></div>
+    <div class="modal-bd" style="max-height:70vh;overflow-y:auto">
+      <div class="grid2 mb-2">
+        <select id="pickGradeFilter"><option value="">전체 학년</option></select>
+        <select id="pickSubjectFilter"><option value="">전체 과목</option></select>
+      </div>
+      <div class="grid2 mb-2">
+        <select id="pickMajorFilter"><option value="">전체 대단원</option></select>
+        <select id="pickMinorFilter"><option value="">전체 중단원</option></select>
+      </div>
+      <input type="text" id="pickSearchInput" placeholder="키워드 검색" class="mb-3">
+      <div id="bankPickerList"></div>
+    </div>
+    <div class="modal-ft" style="justify-content:space-between;">
+      <span id="bankPickerCount" style="font-size:12px;color:#999;">0개 선택됨</span>
+      <button class="btn btn-primary" id="bankPickerAddBtn">선택한 문제 추가</button>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: PDF 추출 결과 검토(문항별로 하나씩 확인 후 저장) -->
+<div class="modal-ov" id="bankPdfReviewModal">
+  <div class="modal-bx" style="max-width:560px">
+    <div class="modal-hd"><b id="bankPdfReviewTitle">PDF 추출 결과 검토</b><button id="bankPdfReviewCloseBtn">&times;</button></div>
+    <div class="modal-bd" style="max-height:70vh;overflow-y:auto">
+      <div style="font-size:12px;color:#999;margin-bottom:10px">AI가 자동으로 뽑은 내용입니다. 틀린 부분은 고치고, 그래프가 있는 문제는 아래 PDF 미리보기에서 영역을 드래그해서 잘라내세요.</div>
+      <label>문제 지문 (LaTeX는 $...$ 로 감싸기)</label>
+      <textarea id="pdfRevContentText" rows="3" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:inherit;font-size:14px;" class="mb-2"></textarea>
+      <div id="pdfRevPreview" style="padding:8px 10px;background:#faf8f5;border-radius:8px;font-size:13px;white-space:pre-wrap;margin-bottom:10px;"></div>
+
+      <div class="radio-row">
+        <label style="display:flex;align-items:center;gap:4px;"><input type="radio" name="pdfRevType" value="mc"> 객관식(5지선다)</label>
+        <label style="display:flex;align-items:center;gap:4px;"><input type="radio" name="pdfRevType" value="short"> 주관식</label>
+      </div>
+      <div id="pdfRevMcArea" class="mb-2 hidden">
+        <label>정답 번호</label>
+        <div class="choice-select" id="pdfRevChoiceSelect">
+          <button type="button" data-v="1">1</button><button type="button" data-v="2">2</button>
+          <button type="button" data-v="3">3</button><button type="button" data-v="4">4</button>
+          <button type="button" data-v="5">5</button>
+        </div>
+      </div>
+      <div id="pdfRevShortArea" class="mb-2 hidden">
+        <label>정답 값</label>
+        <input type="text" id="pdfRevValue" class="mb-2">
+      </div>
+      <label>난이도</label>
+      <select id="pdfRevDifficulty" class="mb-2">
+        <option value="상">상</option><option value="중" selected>중</option><option value="하">하</option>
+      </select>
+
+      <label style="display:flex;align-items:center;gap:6px;margin-top:6px;">
+        <input type="checkbox" id="pdfRevHasGraph" style="width:auto;"> 이 문제에 그래프/그림 포함 (영역 잘라서 이미지로 저장)
+      </label>
+      <div id="pdfRevCropArea" class="hidden mb-2">
+        <div style="display:flex;gap:6px;align-items:center;margin:8px 0;">
+          <span style="font-size:12px;color:#999">페이지</span>
+          <button class="btn btn-secondary" id="pdfRevPrevPage" style="padding:2px 10px;">‹</button>
+          <span id="pdfRevPageLabel" style="font-size:13px;">1</span>
+          <button class="btn btn-secondary" id="pdfRevNextPage" style="padding:2px 10px;">›</button>
+          <button class="btn btn-secondary" id="pdfRevClearRect" style="padding:2px 10px;margin-left:auto;">영역 지우기</button>
+        </div>
+        <div style="overflow:auto;border:1.5px solid #e0e0e0;border-radius:8px;max-height:340px;">
+          <canvas id="pdfRevCanvas" style="cursor:crosshair;display:block;"></canvas>
+        </div>
+        <div id="pdfRevCropStatus" style="font-size:12px;color:#999;margin-top:4px;"></div>
+      </div>
+      <div id="pdfRevErr" class="err hidden"></div>
+    </div>
+    <div class="modal-ft" style="justify-content:space-between;">
+      <span id="pdfRevProgress" style="font-size:12px;color:#999;"></span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" id="pdfRevSkipBtn">건너뛰기</button>
+        <button class="btn btn-primary" id="pdfRevSaveBtn">저장하고 다음</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: 카드 "..." 작은 팝업 / 수정 서브메뉴 -->
+<div id="bankMiniPopup" class="hidden" style="position:absolute;z-index:1000;background:#fff;border:1px solid #eee;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:140px;overflow:visible;">
+  <div class="bank-mini-item" data-act="edit" style="padding:10px 14px;font-size:13px;cursor:pointer;display:flex;align-items:center;gap:6px;">✏️ 수정</div>
+  <div class="bank-mini-item" data-act="delete" style="padding:10px 14px;font-size:13px;cursor:pointer;color:#ef4444;display:flex;align-items:center;gap:6px;border-top:1px solid #f2f2f2">🗑 삭제</div>
+  <div id="bankEditSubmenu" class="hidden" style="position:absolute;left:100%;top:0;background:#fff;border:1px solid #eee;border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.15);min-width:160px;">
+    <div class="bank-mini-item" data-edit="content" style="padding:10px 14px;font-size:13px;cursor:pointer;">문제수정</div>
+    <div class="bank-mini-item" data-edit="answer" style="padding:10px 14px;font-size:13px;cursor:pointer;border-top:1px solid #f2f2f2">답안수정</div>
+    <div class="bank-mini-item" data-edit="difficulty" style="padding:10px 14px;font-size:13px;cursor:pointer;border-top:1px solid #f2f2f2">난이도수정</div>
+    <div class="bank-mini-item" data-edit="classify" style="padding:10px 14px;font-size:13px;cursor:pointer;border-top:1px solid #f2f2f2">분류수정</div>
+    <div class="bank-mini-item hidden" id="bankEditMakeTwin" data-edit="maketwin" style="padding:10px 14px;font-size:13px;cursor:pointer;border-top:1px solid #f2f2f2">+ 쌍둥이 추가 제작</div>
+  </div>
+</div>
+
+<!-- 문제은행: 수정 모달 (내용에 따라 body가 바뀜) -->
+<div class="modal-ov" id="bankEditModal">
+  <div class="modal-bx" style="max-width:480px">
+    <div class="modal-hd"><b id="bankEditModalTitle">수정</b><button id="bankEditModalCloseBtn">&times;</button></div>
+    <div class="modal-bd" id="bankEditModalBody" style="max-height:65vh;overflow-y:auto"></div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="bankEditModalCancelBtn">취소</button>
+      <button class="btn btn-primary" id="bankEditModalSaveBtn">저장</button>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: 단원 관리 -->
+<div class="modal-ov" id="curriculumModal">
+  <div class="modal-bx" style="max-width:480px">
+    <div class="modal-hd"><b>단원 관리</b><button id="curriculumModalCloseBtn">&times;</button></div>
+    <div class="modal-bd" style="max-height:65vh;overflow-y:auto">
+      <label>새 단원 추가</label>
+      <input type="text" id="curGradeInput" placeholder="학년 (예: 고2)" class="mb-2">
+      <input type="text" id="curSubjectInput" placeholder="과목 (예: 대수)" class="mb-2">
+      <input type="text" id="curMajorInput" placeholder="대단원 (예: 함수의 연속)" class="mb-2">
+      <input type="text" id="curMinorInput" placeholder="중단원 (예: 합성함수의 연속)" class="mb-2">
+      <button class="btn btn-secondary btn-block mb-3" id="curAddBtn">단원 추가</button>
+      <div class="err hidden" id="curErr"></div>
+      <div id="curriculumList"></div>
+    </div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="curriculumModalCloseBtn2">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: 쌍둥이 ↔ 원본 보기 -->
+<div class="modal-ov" id="twinModal">
+  <div class="modal-bx" style="max-width:480px">
+    <div class="modal-hd"><b id="twinModalTitle">쌍둥이 문제</b><button id="twinModalCloseBtn">&times;</button></div>
+    <div class="modal-bd" id="twinModalBody" style="max-height:65vh;overflow-y:auto"></div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="twinModalCloseBtn2">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 문제은행: 휴지통 -->
+<div class="modal-ov" id="trashModal">
+  <div class="modal-bx" style="max-width:480px">
+    <div class="modal-hd"><b>휴지통 (30일 후 자동 삭제)</b><button id="trashModalCloseBtn">&times;</button></div>
+    <div class="modal-bd" id="trashModalBody" style="max-height:65vh;overflow-y:auto"></div>
+    <div class="modal-ft">
+      <button class="btn btn-secondary" id="trashModalCloseBtn2">닫기</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // =========================================================
 // 설정 — 본인 값으로 교체하세요
@@ -225,6 +479,13 @@ const TEACHER_PW   = '2424'; // 선생님 페이지 접속 비밀번호 (원하�
 
 const { createClient } = supabase;
 const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// 수식(LaTeX)이 포함된 영역을 다시 그린 뒤 호출하면 MathJax가 예쁘게 렌더링해줌
+function typesetMath(el) {
+  if (window.MathJax && window.MathJax.typesetPromise) {
+    window.MathJax.typesetPromise(el ? [el] : undefined).catch(() => {});
+  }
+}
 
 // 삭제 등 되돌릴 수 없는 작업은 두 번 확인
 function confirmDelete(msg) {
@@ -261,10 +522,11 @@ document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     tab.classList.add('active');
-    ['Worksheets','Results','Students'].forEach(name => {
+    ['Worksheets','Results','Students','Bank'].forEach(name => {
       document.getElementById('tab' + name).classList.toggle('hidden', 'tab' + name !== 'tab' + capitalize(tab.dataset.tab));
     });
     if (tab.dataset.tab === 'results') initResultsTab();
+    if (tab.dataset.tab === 'bank' && !bankTabInited) initBankTab();
   });
 });
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
@@ -727,7 +989,7 @@ async function openWorksheetEditor(id) {
 
   renderEditor(title, assignedStudentIds, chunkSize);
 }
-function emptyQuestion() { return { type:'mc', correct_choice:1, correct_value:'', answer_prefix:'', answer_suffix:'', tolerance:0, tag_id:'' }; }
+function emptyQuestion() { return { type:'mc', correct_choice:1, correct_value:'', answer_prefix:'', answer_suffix:'', tolerance:0, tag_id:'', bank_problem_id:null, bank_preview:'' }; }
 
 function renderEditor(title, assignedStudentIds, chunkSize) {
   const view = document.getElementById('wsEditorView');
@@ -787,6 +1049,13 @@ function renderEditor(title, assignedStudentIds, chunkSize) {
   addBtn.textContent = '+ 문항 추가';
   addBtn.onclick = () => { editorQuestions.push(emptyQuestion()); document.getElementById('wsQCount').value = editorQuestions.length; renderQuestionBoxes(); };
   view.appendChild(addBtn);
+
+  const bankImportBtn = document.createElement('button');
+  bankImportBtn.className = 'btn btn-secondary mb-3';
+  bankImportBtn.style.marginLeft = '8px';
+  bankImportBtn.textContent = '+ 문제은행에서 가져오기';
+  bankImportBtn.onclick = () => openBankPickerModal(() => selectedAssign);
+  view.appendChild(bankImportBtn);
 
   // 배정 (반 선택 → 그 반 학생들 중 개별 선택)
   const assignCard = document.createElement('div');
@@ -943,6 +1212,13 @@ function renderQuestionBoxes() {
     head.appendChild(delLink);
     box.appendChild(head);
 
+    if (q.bank_problem_id) {
+      const bankTag = document.createElement('div');
+      bankTag.style.cssText = 'font-size:12px;color:#C2410C;background:#FFF1E8;border-radius:6px;padding:6px 8px;margin-bottom:8px;';
+      bankTag.textContent = '📚 문제은행: ' + (q.bank_preview || '(가져온 문제)');
+      box.appendChild(bankTag);
+    }
+
     const radioRow = document.createElement('div');
     radioRow.className = 'radio-row';
     radioRow.innerHTML = `
@@ -1023,6 +1299,9 @@ async function saveWorksheet(assignedStudentIds) {
 
   const chunkSize = Number(document.getElementById('wsChunkSize').value) || 0;
 
+  const exposureWarning = await checkExposureHistory(editorQuestions, assignedStudentIds);
+  if (exposureWarning && !confirm(exposureWarning + '\n\n그래도 저장할까요?')) return;
+
   let worksheetId = editorWorksheetId;
   if (worksheetId) {
     await db.from('worksheets').update({ title, chunk_size: chunkSize || null }).eq('id', worksheetId);
@@ -1040,7 +1319,8 @@ async function saveWorksheet(assignedStudentIds) {
     answer_prefix: q.type === 'short' ? (String(q.answer_prefix||'').trim() || null) : null,
     answer_suffix: q.type === 'short' ? (String(q.answer_suffix||'').trim() || null) : null,
     tolerance: q.tolerance ?? 0,
-    tag_id: q.tag_id || null
+    tag_id: q.tag_id || null,
+    bank_problem_id: q.bank_problem_id || null
   }));
   await db.from('questions').insert(rows);
 
@@ -1416,6 +1696,1002 @@ function closeAttemptModal() {
 }
 document.getElementById('attemptModalCloseBtn').addEventListener('click', closeAttemptModal);
 document.getElementById('attemptModalCloseBtn2').addEventListener('click', closeAttemptModal);
+
+// =========================================================
+// 문제은행
+// =========================================================
+let allCurriculumUnits = [];
+let allProblemTypes = [];
+let bankProblems = [];
+let bankTabInited = false;
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+}
+function debounce(fn, ms) {
+  let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+}
+function unitLabel(u) { return u ? `${u.grade} - ${u.subject} - ${u.major_unit} - ${u.minor_unit}` : '(미분류)'; }
+function uniqueSorted(arr) { return [...new Set(arr.filter(v => v !== null && v !== undefined && v !== ''))].sort((a,b)=>a.localeCompare(b,'ko')); }
+
+async function initBankTab() {
+  bankTabInited = true;
+  await Promise.all([loadCurriculumUnits(), loadProblemTypes()]);
+  populateBankFilterOptions();
+  populateBankAddUnitSelect();
+  await loadBankProblems();
+  renderBankList();
+}
+
+async function loadCurriculumUnits() {
+  const { data } = await db.from('curriculum_units').select('*').order('grade').order('subject').order('major_unit').order('minor_unit');
+  allCurriculumUnits = data || [];
+}
+async function loadProblemTypes() {
+  const { data } = await db.from('problem_types').select('*').order('name');
+  allProblemTypes = data || [];
+}
+async function loadBankProblems() {
+  const { data } = await db.from('bank_problems')
+    .select('*, curriculum_units(grade, subject, major_unit, minor_unit), problem_types(name), twins:bank_problems!bank_problems_origin_problem_id_fkey(id)')
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false });
+  bankProblems = data || [];
+}
+
+// ---- 필터 (학년-과목-대단원-중단원 캐스케이딩 + 유형/원본쌍둥이/상태/검색) ----
+function matchingUnits() {
+  const g = document.getElementById('bankGradeFilter').value;
+  const s = document.getElementById('bankSubjectFilter').value;
+  const maj = document.getElementById('bankMajorFilter').value;
+  const min = document.getElementById('bankMinorFilter').value;
+  return allCurriculumUnits.filter(u =>
+    (!g || u.grade === g) && (!s || u.subject === s) && (!maj || u.major_unit === maj) && (!min || u.minor_unit === min)
+  );
+}
+function fillSelectKeepValue(sel, options, placeholder) {
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">${placeholder}</option>` + options.map(o => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join('');
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev; else sel.value = '';
+}
+function populateBankFilterOptions() {
+  fillSelectKeepValue(document.getElementById('bankGradeFilter'), uniqueSorted(allCurriculumUnits.map(u=>u.grade)), '전체 학년');
+  updateBankSubjectOptions();
+}
+function updateBankSubjectOptions() {
+  const g = document.getElementById('bankGradeFilter').value;
+  const pool = allCurriculumUnits.filter(u => !g || u.grade === g);
+  fillSelectKeepValue(document.getElementById('bankSubjectFilter'), uniqueSorted(pool.map(u=>u.subject)), '전체 과목');
+  updateBankMajorOptions();
+}
+function updateBankMajorOptions() {
+  const g = document.getElementById('bankGradeFilter').value, s = document.getElementById('bankSubjectFilter').value;
+  const pool = allCurriculumUnits.filter(u => (!g || u.grade===g) && (!s || u.subject===s));
+  fillSelectKeepValue(document.getElementById('bankMajorFilter'), uniqueSorted(pool.map(u=>u.major_unit)), '전체 대단원');
+  updateBankMinorOptions();
+}
+function updateBankMinorOptions() {
+  fillSelectKeepValue(document.getElementById('bankMinorFilter'), uniqueSorted(matchingUnits().map(u=>u.minor_unit)), '전체 중단원');
+  updateBankTypeOptions();
+}
+function updateBankTypeOptions() {
+  const unitIds = new Set(matchingUnits().map(u=>u.id));
+  const pool = allProblemTypes.filter(t => unitIds.has(t.curriculum_unit_id));
+  fillSelectKeepValue(document.getElementById('bankTypeFilter'), uniqueSorted(pool.map(t=>t.name)), '전체 유형');
+}
+document.getElementById('bankGradeFilter').addEventListener('change', () => { updateBankSubjectOptions(); renderBankList(); });
+document.getElementById('bankSubjectFilter').addEventListener('change', () => { updateBankMajorOptions(); renderBankList(); });
+document.getElementById('bankMajorFilter').addEventListener('change', () => { updateBankMinorOptions(); renderBankList(); });
+document.getElementById('bankMinorFilter').addEventListener('change', () => { updateBankTypeOptions(); renderBankList(); });
+document.getElementById('bankTypeFilter').addEventListener('change', renderBankList);
+document.getElementById('bankOriginFilter').addEventListener('change', renderBankList);
+document.getElementById('bankStatusFilter').addEventListener('change', renderBankList);
+document.getElementById('bankSearchInput').addEventListener('input', debounce(renderBankList, 250));
+
+function renderBankList() {
+  const g = document.getElementById('bankGradeFilter').value;
+  const s = document.getElementById('bankSubjectFilter').value;
+  const maj = document.getElementById('bankMajorFilter').value;
+  const min = document.getElementById('bankMinorFilter').value;
+  const typeName = document.getElementById('bankTypeFilter').value;
+  const origin = document.getElementById('bankOriginFilter').value;
+  const status = document.getElementById('bankStatusFilter').value;
+  const kw = document.getElementById('bankSearchInput').value.trim().toLowerCase();
+
+  const list = bankProblems.filter(p => {
+    const u = p.curriculum_units;
+    if (g && (!u || u.grade !== g)) return false;
+    if (s && (!u || u.subject !== s)) return false;
+    if (maj && (!u || u.major_unit !== maj)) return false;
+    if (min && (!u || u.minor_unit !== min)) return false;
+    if (typeName && (!p.problem_types || p.problem_types.name !== typeName)) return false;
+    if (origin === 'origin' && p.origin_problem_id) return false;
+    if (origin === 'twin' && !p.origin_problem_id) return false;
+    if (status && p.status !== status) return false;
+    if (kw && !(p.content_text || '').toLowerCase().includes(kw)) return false;
+    return true;
+  });
+
+  const wrap = document.getElementById('bankList');
+  wrap.innerHTML = '';
+  if (!list.length) {
+    wrap.innerHTML = '<div style="color:#999;font-size:13px;padding:20px 0;text-align:center">조건에 맞는 문제가 없습니다.</div>';
+    return;
+  }
+  const statusColor = { '승인':'#16a34a', '검토대기':'#d97706', '반려':'#ef4444' };
+  const diffColor = { '상':'#ef4444', '중':'#d97706', '하':'#16a34a' };
+  list.forEach(p => {
+    const card = document.createElement('div');
+    card.className = 'bank-card';
+    card.style.cssText = 'border:1.5px solid #eee;border-radius:12px;padding:14px;margin-bottom:10px;position:relative;';
+    const twinCount = (p.twins || []).length;
+    const originBtn = p.origin_problem_id
+      ? `<button class="btn btn-secondary btn-twin-nav" data-goto-origin="${p.origin_problem_id}" style="padding:4px 10px;font-size:12px;">원본 보기</button>`
+      : (twinCount ? `<button class="btn btn-secondary btn-twin-nav" data-goto-twins="${p.id}" style="padding:4px 10px;font-size:12px;">쌍둥이 보기 (${twinCount})</button>` : '');
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;">
+        <div style="font-size:12px;color:#999;">${escapeHtml(unitLabel(p.curriculum_units))}${p.problem_types ? ' · ' + escapeHtml(p.problem_types.name) : ''}</div>
+        <button class="bank-more-btn" data-id="${p.id}" style="border:none;background:none;font-size:18px;cursor:pointer;color:#999;line-height:1;padding:2px 6px;">⋯</button>
+      </div>
+      <div class="bank-card-content" style="margin:8px 0;font-size:14px;line-height:1.6;white-space:pre-wrap;">${escapeHtml(p.content_text)}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${diffColor[p.difficulty]||'#999'}22;color:${diffColor[p.difficulty]||'#999'};">난이도 ${escapeHtml(p.difficulty)}</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:${statusColor[p.status]||'#999'}22;color:${statusColor[p.status]||'#999'};">${escapeHtml(p.status)}</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#f2f2f2;color:#666;">${p.origin_problem_id ? '쌍둥이' : '원본'}</span>
+        ${originBtn}
+        ${p.status === '검토대기' ? `<button class="btn btn-secondary bank-approve-btn" data-id="${p.id}" style="padding:4px 10px;font-size:12px;margin-left:auto;">승인</button><button class="btn btn-danger bank-reject-btn" data-id="${p.id}" style="padding:4px 10px;font-size:12px;">반려</button>` : ''}
+      </div>
+    `;
+    wrap.appendChild(card);
+    typesetMath(card.querySelector('.bank-card-content'));
+  });
+
+  wrap.querySelectorAll('.bank-more-btn').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); openBankMiniPopup(btn, list.find(p => p.id === btn.dataset.id)); });
+  });
+  wrap.querySelectorAll('.btn-twin-nav').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.gotoOrigin) openTwinModal(btn.dataset.gotoOrigin, 'origin');
+      else openTwinModal(btn.dataset.gotoTwins, 'twins');
+    });
+  });
+  wrap.querySelectorAll('.bank-approve-btn').forEach(btn => btn.addEventListener('click', () => setBankStatus(btn.dataset.id, '승인')));
+  wrap.querySelectorAll('.bank-reject-btn').forEach(btn => btn.addEventListener('click', () => setBankStatus(btn.dataset.id, '반려')));
+}
+
+async function setBankStatus(id, status) {
+  await db.from('bank_problems').update({ status }).eq('id', id);
+  await loadBankProblems();
+  renderBankList();
+}
+
+// ---- "..." 작은 팝업 + 수정 서브메뉴 ----
+let bankPopupTarget = null;
+function openBankMiniPopup(btn, problem) {
+  bankPopupTarget = problem;
+  const pop = document.getElementById('bankMiniPopup');
+  const sub = document.getElementById('bankEditSubmenu');
+  sub.classList.add('hidden');
+  document.getElementById('bankEditMakeTwin').classList.toggle('hidden', !!problem.origin_problem_id);
+  const r = btn.getBoundingClientRect();
+  pop.style.top = (window.scrollY + r.bottom + 4) + 'px';
+  pop.style.left = (window.scrollX + r.right - 140) + 'px';
+  pop.classList.remove('hidden');
+}
+function closeBankMiniPopup() {
+  document.getElementById('bankMiniPopup').classList.add('hidden');
+  document.getElementById('bankEditSubmenu').classList.add('hidden');
+}
+document.addEventListener('click', e => {
+  const pop = document.getElementById('bankMiniPopup');
+  if (!pop.classList.contains('hidden') && !pop.contains(e.target) && !e.target.classList.contains('bank-more-btn')) closeBankMiniPopup();
+});
+document.querySelector('#bankMiniPopup [data-act="edit"]').addEventListener('click', e => {
+  e.stopPropagation();
+  document.getElementById('bankEditSubmenu').classList.toggle('hidden');
+});
+document.querySelector('#bankMiniPopup [data-act="delete"]').addEventListener('click', () => {
+  const p = bankPopupTarget;
+  closeBankMiniPopup();
+  deleteBankProblem(p);
+});
+document.querySelectorAll('#bankEditSubmenu .bank-mini-item[data-edit]').forEach(item => {
+  item.addEventListener('click', () => {
+    const kind = item.dataset.edit;
+    const p = bankPopupTarget;
+    closeBankMiniPopup();
+    if (kind === 'maketwin') openBankAddModal(p);
+    else openBankEditModal(p, kind);
+  });
+});
+
+async function deleteBankProblem(p) {
+  const isOrigin = !p.origin_problem_id;
+  const twinCount = isOrigin ? (p.twins || []).length : 0;
+  let cascade = false;
+  if (isOrigin && twinCount > 0) {
+    cascade = confirm(`이 문제는 쌍둥이 문제 ${twinCount}개를 가지고 있습니다. 쌍둥이 문제도 함께 휴지통으로 보낼까요?\n(취소하면 원본만 삭제하고 쌍둥이는 남습니다)`);
+  } else if (!isOrigin) {
+    cascade = confirm('이 문제는 원본이 있는 쌍둥이 문제입니다. 원본 문제도 함께 휴지통으로 보낼까요?\n(취소하면 이 쌍둥이만 삭제합니다)');
+  }
+  if (!confirmDelete('이 문제를 휴지통으로 이동할까요?')) return;
+
+  const ids = [p.id];
+  if (cascade) {
+    if (isOrigin) ids.push(...(p.twins || []).map(t => t.id));
+    else if (p.origin_problem_id) ids.push(p.origin_problem_id);
+  }
+  await db.from('bank_problems').update({ deleted_at: new Date().toISOString() }).in('id', ids);
+  await loadBankProblems();
+  renderBankList();
+}
+
+// ---- 수정 모달 (문제수정/답안수정/난이도수정/분류수정) ----
+let bankEditTarget = null;
+let bankEditKind = null;
+
+function openBankEditModal(problem, kind) {
+  bankEditTarget = problem; bankEditKind = kind;
+  const titleMap = { content:'문제수정', answer:'답안수정', difficulty:'난이도수정', classify:'분류수정' };
+  document.getElementById('bankEditModalTitle').textContent = titleMap[kind];
+  const body = document.getElementById('bankEditModalBody');
+  body.innerHTML = '';
+
+  if (kind === 'content') {
+    body.innerHTML = `
+      <label>문제 지문 (LaTeX는 $...$ 로 감싸기)</label>
+      <textarea id="editContentText" rows="5" style="width:100%;padding:10px;border:1.5px solid #e0e0e0;border-radius:8px;font-family:inherit;font-size:14px;">${escapeHtml(problem.content_text)}</textarea>
+      <div style="font-size:12px;color:#999;margin:6px 0 4px">미리보기</div>
+      <div id="editContentPreview" style="padding:10px;background:#faf8f5;border-radius:8px;min-height:20px;white-space:pre-wrap;"></div>
+    `;
+    const preview = document.getElementById('editContentPreview');
+    const ta = document.getElementById('editContentText');
+    const refresh = () => { preview.textContent = ta.value; typesetMath(preview); };
+    ta.addEventListener('input', debounce(refresh, 300));
+    refresh();
+  } else if (kind === 'answer') {
+    if (problem.type === 'mc') {
+      body.innerHTML = `<label>정답 번호</label><div class="choice-select" id="editChoiceSelect"></div>`;
+      const sel = document.getElementById('editChoiceSelect');
+      for (let n=1;n<=5;n++) {
+        const b = document.createElement('button');
+        b.type='button'; b.textContent = n;
+        if (problem.correct_choice === n) b.classList.add('selected');
+        b.onclick = () => { [...sel.children].forEach(c=>c.classList.remove('selected')); b.classList.add('selected'); };
+        sel.appendChild(b);
+      }
+    } else {
+      body.innerHTML = `
+        <label>정답 값</label>
+        <input type="text" id="editValueInput" value="${escapeHtml(problem.correct_value||'')}" class="mb-2">
+        <label>정답 앞 고정 텍스트 (선택)</label>
+        <input type="text" id="editPrefixInput" value="${escapeHtml(problem.answer_prefix||'')}" class="mb-2">
+        <label>정답 뒤 고정 텍스트 (선택)</label>
+        <input type="text" id="editSuffixInput" value="${escapeHtml(problem.answer_suffix||'')}">
+      `;
+    }
+  } else if (kind === 'difficulty') {
+    body.innerHTML = `
+      <label>난이도</label>
+      <select id="editDifficultySelect">
+        ${['상','중','하'].map(d=>`<option value="${d}" ${problem.difficulty===d?'selected':''}>${d}</option>`).join('')}
+      </select>
+    `;
+  } else if (kind === 'classify') {
+    body.innerHTML = `
+      <label>학년</label><select id="editGradeSel" class="mb-2"></select>
+      <label>과목</label><select id="editSubjectSel" class="mb-2"></select>
+      <label>대단원</label><select id="editMajorSel" class="mb-2"></select>
+      <label>중단원</label><select id="editMinorSel" class="mb-2"></select>
+      <label>유형</label><select id="editTypeSel" class="mb-2"></select>
+      <div style="font-size:12px;color:#999">목록에 없는 학년/과목/단원/유형은 '단원 관리'에서 먼저 추가하세요.</div>
+    `;
+    setupClassifyEditSelects(problem.curriculum_unit_id, problem.problem_type_id);
+  }
+  document.getElementById('bankEditModal').classList.add('show');
+}
+
+function setupClassifyEditSelects(curUnitId, curTypeId) {
+  const gSel = document.getElementById('editGradeSel'), sSel = document.getElementById('editSubjectSel');
+  const mSel = document.getElementById('editMajorSel'), nSel = document.getElementById('editMinorSel');
+  const tSel = document.getElementById('editTypeSel');
+  const curUnit = allCurriculumUnits.find(u => u.id === curUnitId);
+
+  const fillG = () => { gSel.innerHTML = uniqueSorted(allCurriculumUnits.map(u=>u.grade)).map(g=>`<option value="${escapeHtml(g)}">${escapeHtml(g)}</option>`).join(''); };
+  const fillS = () => { const pool = allCurriculumUnits.filter(u=>u.grade===gSel.value); sSel.innerHTML = uniqueSorted(pool.map(u=>u.subject)).map(s=>`<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`).join(''); };
+  const fillM = () => { const pool = allCurriculumUnits.filter(u=>u.grade===gSel.value && u.subject===sSel.value); mSel.innerHTML = uniqueSorted(pool.map(u=>u.major_unit)).map(m=>`<option value="${escapeHtml(m)}">${escapeHtml(m)}</option>`).join(''); };
+  const fillN = () => { const pool = allCurriculumUnits.filter(u=>u.grade===gSel.value && u.subject===sSel.value && u.major_unit===mSel.value); nSel.innerHTML = uniqueSorted(pool.map(u=>u.minor_unit)).map(n=>`<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join(''); };
+  const fillT = () => {
+    const unit = allCurriculumUnits.find(u=>u.grade===gSel.value && u.subject===sSel.value && u.major_unit===mSel.value && u.minor_unit===nSel.value);
+    const pool = unit ? allProblemTypes.filter(t=>t.curriculum_unit_id===unit.id) : [];
+    tSel.innerHTML = '<option value="">유형 없음</option>' + pool.map(t=>`<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+    if (curTypeId && pool.some(t=>t.id===curTypeId)) tSel.value = curTypeId;
+  };
+
+  fillG(); if (curUnit) gSel.value = curUnit.grade;
+  fillS(); if (curUnit) sSel.value = curUnit.subject;
+  fillM(); if (curUnit) mSel.value = curUnit.major_unit;
+  fillN(); if (curUnit) nSel.value = curUnit.minor_unit;
+  fillT();
+
+  gSel.onchange = () => { fillS(); fillM(); fillN(); fillT(); };
+  sSel.onchange = () => { fillM(); fillN(); fillT(); };
+  mSel.onchange = () => { fillN(); fillT(); };
+  nSel.onchange = fillT;
+}
+
+document.getElementById('bankEditModalCancelBtn').addEventListener('click', () => document.getElementById('bankEditModal').classList.remove('show'));
+document.getElementById('bankEditModalCloseBtn').addEventListener('click', () => document.getElementById('bankEditModal').classList.remove('show'));
+document.getElementById('bankEditModalSaveBtn').addEventListener('click', async () => {
+  const p = bankEditTarget;
+  let patch = null;
+  if (bankEditKind === 'content') {
+    const text = document.getElementById('editContentText').value.trim();
+    if (!text) { alert('문제 지문을 입력하세요.'); return; }
+    patch = { content_text: text };
+  } else if (bankEditKind === 'answer') {
+    if (p.type === 'mc') {
+      const sel = document.getElementById('editChoiceSelect').querySelector('.selected');
+      if (!sel) { alert('정답 번호를 선택하세요.'); return; }
+      patch = { correct_choice: Number(sel.textContent) };
+    } else {
+      const val = document.getElementById('editValueInput').value.trim();
+      if (!val) { alert('정답 값을 입력하세요.'); return; }
+      patch = { correct_value: val, answer_prefix: document.getElementById('editPrefixInput').value.trim() || null, answer_suffix: document.getElementById('editSuffixInput').value.trim() || null };
+    }
+  } else if (bankEditKind === 'difficulty') {
+    patch = { difficulty: document.getElementById('editDifficultySelect').value };
+  } else if (bankEditKind === 'classify') {
+    const g = document.getElementById('editGradeSel').value, s = document.getElementById('editSubjectSel').value;
+    const maj = document.getElementById('editMajorSel').value, min = document.getElementById('editMinorSel').value;
+    const unit = allCurriculumUnits.find(u => u.grade===g && u.subject===s && u.major_unit===maj && u.minor_unit===min);
+    if (!unit) { alert('단원을 올바르게 선택하세요.'); return; }
+    const typeId = document.getElementById('editTypeSel').value || null;
+    patch = { curriculum_unit_id: unit.id, problem_type_id: typeId };
+  }
+  if (!patch) return;
+  await db.from('bank_problems').update(patch).eq('id', p.id);
+  document.getElementById('bankEditModal').classList.remove('show');
+  await loadBankProblems();
+  renderBankList();
+});
+
+// ---- 문제 추가 (직접 입력 / PDF, 쌍둥이 추가 제작 겸용) ----
+let bankAddOriginProblem = null;
+
+function populateBankAddUnitSelect() {
+  const sel = document.getElementById('bankAddUnitSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">중단원 선택</option>' + allCurriculumUnits.map(u => `<option value="${u.id}">${escapeHtml(unitLabel(u))}</option>`).join('');
+  if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+}
+function openBankAddModal(originProblem) {
+  bankAddOriginProblem = originProblem || null;
+  document.getElementById('bankAddErr').classList.add('hidden');
+  document.getElementById('bankManualText').value = '';
+  document.getElementById('bankManualValue').value = '';
+  document.getElementById('bankPdfStatus').textContent = '';
+  document.getElementById('bankPdfInput').value = '';
+  document.querySelectorAll('#bankManualChoiceSelect button').forEach(b => b.classList.remove('selected'));
+  document.querySelector('input[name="bankManualType"][value="mc"]').checked = true;
+  document.getElementById('bankManualMcArea').classList.remove('hidden');
+  document.getElementById('bankManualShortArea').classList.add('hidden');
+  populateBankAddUnitSelect();
+  document.getElementById('bankTwinAiStatus').textContent = '';
+  if (originProblem) {
+    document.getElementById('bankAddModalTitle').textContent = '쌍둥이 문제 추가 제작';
+    document.getElementById('bankAddUnitSelect').value = originProblem.curriculum_unit_id || '';
+    document.getElementById('bankAddUnitSelect').disabled = true;
+    document.getElementById('bankTwinAiArea').classList.remove('hidden');
+  } else {
+    document.getElementById('bankAddModalTitle').textContent = '문제 추가';
+    document.getElementById('bankAddUnitSelect').disabled = false;
+    document.getElementById('bankTwinAiArea').classList.add('hidden');
+  }
+  document.getElementById('bankAddModal').classList.add('show');
+}
+document.getElementById('bankTwinAiBtn').addEventListener('click', async () => {
+  const origin = bankAddOriginProblem;
+  if (!origin) return;
+  const statusEl = document.getElementById('bankTwinAiStatus');
+  statusEl.style.color = '#888';
+  statusEl.textContent = 'AI가 변형 문제를 만들고 스스로 검산하는 중입니다... (10~20초)';
+  try {
+    const resp = await fetch('/api/generate-twin', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        content_text: origin.content_text, type: origin.type,
+        correct_choice: origin.correct_choice, correct_value: origin.correct_value,
+        answer_prefix: origin.answer_prefix, answer_suffix: origin.answer_suffix,
+        difficulty: origin.difficulty
+      })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { statusEl.style.color = '#ef4444'; statusEl.textContent = data.error || '생성에 실패했습니다.'; return; }
+    document.getElementById('bankManualText').value = data.content_text || '';
+    const isMc = data.type === 'mc';
+    document.querySelector(`input[name="bankManualType"][value="${isMc ? 'mc' : 'short'}"]`).checked = true;
+    document.getElementById('bankManualMcArea').classList.toggle('hidden', !isMc);
+    document.getElementById('bankManualShortArea').classList.toggle('hidden', isMc);
+    if (isMc) {
+      document.querySelectorAll('#bankManualChoiceSelect button').forEach(b => b.classList.toggle('selected', Number(b.textContent) === data.correct_choice));
+    } else {
+      document.getElementById('bankManualValue').value = data.correct_value || '';
+    }
+    statusEl.style.color = data.verified ? '#16a34a' : '#d97706';
+    statusEl.textContent = data.verified
+      ? 'AI가 생성 및 자체 검산까지 마쳤습니다. 아래 내용을 검토한 뒤 저장하세요.'
+      : 'AI가 생성했지만 검산에 확신이 낮습니다. 정답을 꼭 직접 확인한 뒤 저장하세요.';
+  } catch (e) {
+    statusEl.style.color = '#ef4444';
+    statusEl.textContent = '오류: ' + e.message;
+  }
+});
+function closeBankAddModal() { document.getElementById('bankAddModal').classList.remove('show'); }
+document.getElementById('bankAddBtn').addEventListener('click', () => openBankAddModal(null));
+document.getElementById('bankAddModalCloseBtn').addEventListener('click', closeBankAddModal);
+
+document.querySelectorAll('input[name="bankManualType"]').forEach(r => {
+  r.addEventListener('change', () => {
+    const isMc = document.querySelector('input[name="bankManualType"]:checked').value === 'mc';
+    document.getElementById('bankManualMcArea').classList.toggle('hidden', !isMc);
+    document.getElementById('bankManualShortArea').classList.toggle('hidden', isMc);
+  });
+});
+document.querySelectorAll('#bankManualChoiceSelect button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#bankManualChoiceSelect button').forEach(x => x.classList.remove('selected'));
+    b.classList.add('selected');
+  });
+});
+
+document.getElementById('bankManualSaveBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('bankAddErr');
+  errEl.classList.add('hidden');
+  const unitId = document.getElementById('bankAddUnitSelect').value;
+  const text = document.getElementById('bankManualText').value.trim();
+  const isMc = document.querySelector('input[name="bankManualType"]:checked').value === 'mc';
+  if (!unitId) { errEl.textContent = '중단원을 선택하세요.'; errEl.classList.remove('hidden'); return; }
+  if (!text) { errEl.textContent = '문제 지문을 입력하세요.'; errEl.classList.remove('hidden'); return; }
+  let row = { curriculum_unit_id: unitId, content_text: text, type: isMc ? 'mc' : 'short', status: '검토대기', difficulty: '중' };
+  if (isMc) {
+    const sel = document.getElementById('bankManualChoiceSelect').querySelector('.selected');
+    if (!sel) { errEl.textContent = '정답 번호를 선택하세요.'; errEl.classList.remove('hidden'); return; }
+    row.correct_choice = Number(sel.textContent);
+  } else {
+    const val = document.getElementById('bankManualValue').value.trim();
+    if (!val) { errEl.textContent = '정답 값을 입력하세요.'; errEl.classList.remove('hidden'); return; }
+    row.correct_value = val;
+  }
+  if (bankAddOriginProblem) row.origin_problem_id = bankAddOriginProblem.id;
+  if (!bankAddOriginProblem) {
+    const dupWarning = await checkDuplicateWarning(text, unitId);
+    if (dupWarning && !confirm(dupWarning + '\n\n그래도 저장할까요?')) return;
+  }
+  const { error } = await db.from('bank_problems').insert(row);
+  if (error) { errEl.textContent = '저장 실패: ' + error.message; errEl.classList.remove('hidden'); return; }
+  closeBankAddModal();
+  await loadBankProblems();
+  renderBankList();
+});
+
+document.getElementById('bankPdfParseBtn').addEventListener('click', async () => {
+  const statusEl = document.getElementById('bankPdfStatus');
+  const unitId = document.getElementById('bankAddUnitSelect').value;
+  const fileInput = document.getElementById('bankPdfInput');
+  const file = fileInput.files[0];
+  if (!unitId) { statusEl.style.color = '#ef4444'; statusEl.textContent = '먼저 중단원을 선택하세요.'; return; }
+  if (!file) { statusEl.style.color = '#ef4444'; statusEl.textContent = 'PDF 파일을 선택해주세요.'; return; }
+  statusEl.style.color = '#888';
+  statusEl.textContent = '분석 중입니다... (문항 수에 따라 30초~1분 정도 걸릴 수 있어요)';
+  try {
+    const base64 = await fileToBase64(file);
+    const resp = await fetch('/api/parse-bank-pdf', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ pdfBase64: base64 })
+    });
+    const data = await resp.json();
+    if (!resp.ok) { statusEl.style.color = '#ef4444'; statusEl.textContent = data.error || '분석에 실패했습니다.'; return; }
+    if (!data.questions || !data.questions.length) { statusEl.style.color = '#ef4444'; statusEl.textContent = '문항을 찾지 못했습니다. 수동으로 입력해주세요.'; return; }
+    statusEl.style.color = '#16a34a';
+    statusEl.textContent = data.questions.length + '개 문항을 찾았습니다. 검토 화면에서 하나씩 확인하고 저장하세요.';
+    await startPdfReview(file, data.questions, unitId);
+  } catch (e) {
+    statusEl.style.color = '#ef4444';
+    statusEl.textContent = '오류: ' + e.message;
+  }
+});
+
+// ---- PDF 추출 결과 검토 큐 (문항별 확인 + 그래프 영역 잘라내기) ----
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+let pdfRevQueue = [];
+let pdfRevIndex = 0;
+let pdfRevUnitId = null;
+let pdfRevDoc = null;
+let pdfRevPage = 1;
+let pdfRevRect = null; // {x,y,w,h} in canvas px
+let pdfRevDragging = false;
+let pdfRevDragStart = null;
+
+async function startPdfReview(file, questions, unitId) {
+  pdfRevQueue = questions;
+  pdfRevIndex = 0;
+  pdfRevUnitId = unitId;
+  const arrayBuf = await file.arrayBuffer();
+  pdfRevDoc = await pdfjsLib.getDocument({ data: arrayBuf }).promise;
+  closeBankAddModal();
+  document.getElementById('bankPdfReviewModal').classList.add('show');
+  loadPdfReviewItem();
+}
+
+function loadPdfReviewItem() {
+  const q = pdfRevQueue[pdfRevIndex];
+  document.getElementById('pdfRevProgress').textContent = `${pdfRevIndex + 1} / ${pdfRevQueue.length}`;
+  document.getElementById('pdfRevContentText').value = q.content_text || '';
+  refreshPdfRevPreview();
+  const isMc = q.type === 'mc';
+  document.querySelector(`input[name="pdfRevType"][value="${isMc ? 'mc' : 'short'}"]`).checked = true;
+  document.getElementById('pdfRevMcArea').classList.toggle('hidden', !isMc);
+  document.getElementById('pdfRevShortArea').classList.toggle('hidden', isMc);
+  document.querySelectorAll('#pdfRevChoiceSelect button').forEach(b => b.classList.toggle('selected', Number(b.textContent) === q.correct_choice));
+  document.getElementById('pdfRevValue').value = q.correct_value || '';
+  document.getElementById('pdfRevDifficulty').value = q.difficulty && ['상','중','하'].includes(q.difficulty) ? q.difficulty : '중';
+  document.getElementById('pdfRevErr').classList.add('hidden');
+
+  const hasGraph = !!q.has_graph;
+  document.getElementById('pdfRevHasGraph').checked = hasGraph;
+  document.getElementById('pdfRevCropArea').classList.toggle('hidden', !hasGraph);
+  pdfRevPage = Math.min(Math.max(1, q.page || 1), pdfRevDoc.numPages);
+  pdfRevRect = null;
+  if (hasGraph) renderPdfRevPage();
+}
+
+function refreshPdfRevPreview() {
+  const preview = document.getElementById('pdfRevPreview');
+  preview.textContent = document.getElementById('pdfRevContentText').value;
+  typesetMath(preview);
+}
+document.getElementById('pdfRevContentText').addEventListener('input', debounce(refreshPdfRevPreview, 300));
+
+document.querySelectorAll('input[name="pdfRevType"]').forEach(r => {
+  r.addEventListener('change', () => {
+    const isMc = document.querySelector('input[name="pdfRevType"]:checked').value === 'mc';
+    document.getElementById('pdfRevMcArea').classList.toggle('hidden', !isMc);
+    document.getElementById('pdfRevShortArea').classList.toggle('hidden', isMc);
+  });
+});
+document.querySelectorAll('#pdfRevChoiceSelect button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#pdfRevChoiceSelect button').forEach(x => x.classList.remove('selected'));
+    b.classList.add('selected');
+  });
+});
+document.getElementById('pdfRevHasGraph').addEventListener('change', (e) => {
+  document.getElementById('pdfRevCropArea').classList.toggle('hidden', !e.target.checked);
+  if (e.target.checked) renderPdfRevPage();
+});
+document.getElementById('pdfRevPrevPage').addEventListener('click', () => { if (pdfRevPage > 1) { pdfRevPage--; pdfRevRect = null; renderPdfRevPage(); } });
+document.getElementById('pdfRevNextPage').addEventListener('click', () => { if (pdfRevPage < pdfRevDoc.numPages) { pdfRevPage++; pdfRevRect = null; renderPdfRevPage(); } });
+document.getElementById('pdfRevClearRect').addEventListener('click', () => { pdfRevRect = null; renderPdfRevPage(); });
+
+async function renderPdfRevPage() {
+  document.getElementById('pdfRevPageLabel').textContent = pdfRevPage + ' / ' + pdfRevDoc.numPages;
+  const page = await pdfRevDoc.getPage(pdfRevPage);
+  const viewport = page.getViewport({ scale: 1.3 });
+  const canvas = document.getElementById('pdfRevCanvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.dataset.baseW = viewport.width;
+  canvas.dataset.baseH = viewport.height;
+  const ctx = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  canvas._pageImage = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  drawPdfRevRect();
+}
+function drawPdfRevRect() {
+  const canvas = document.getElementById('pdfRevCanvas');
+  if (!canvas._pageImage) return;
+  const ctx = canvas.getContext('2d');
+  ctx.putImageData(canvas._pageImage, 0, 0);
+  if (pdfRevRect) {
+    ctx.strokeStyle = '#FF7A45';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
+    ctx.strokeRect(pdfRevRect.x, pdfRevRect.y, pdfRevRect.w, pdfRevRect.h);
+    ctx.setLineDash([]);
+  }
+  document.getElementById('pdfRevCropStatus').textContent = pdfRevRect
+    ? '영역이 지정되었습니다. 다시 드래그하면 새로 지정됩니다.'
+    : '그래프/그림 영역을 마우스로 드래그해서 지정하세요.';
+}
+(function setupPdfRevCanvasDrag() {
+  const canvas = document.getElementById('pdfRevCanvas');
+  const getPos = (e) => {
+    const r = canvas.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * (canvas.width / r.width), y: (e.clientY - r.top) * (canvas.height / r.height) };
+  };
+  canvas.addEventListener('mousedown', e => { pdfRevDragging = true; pdfRevDragStart = getPos(e); });
+  canvas.addEventListener('mousemove', e => {
+    if (!pdfRevDragging) return;
+    const p = getPos(e);
+    pdfRevRect = { x: Math.min(pdfRevDragStart.x, p.x), y: Math.min(pdfRevDragStart.y, p.y), w: Math.abs(p.x - pdfRevDragStart.x), h: Math.abs(p.y - pdfRevDragStart.y) };
+    drawPdfRevRect();
+  });
+  window.addEventListener('mouseup', () => { pdfRevDragging = false; });
+})();
+
+async function cropAndUploadPdfRevImage() {
+  const canvas = document.getElementById('pdfRevCanvas');
+  if (!pdfRevRect || pdfRevRect.w < 5 || pdfRevRect.h < 5) return null;
+  const crop = document.createElement('canvas');
+  crop.width = Math.round(pdfRevRect.w);
+  crop.height = Math.round(pdfRevRect.h);
+  crop.getContext('2d').drawImage(canvas, pdfRevRect.x, pdfRevRect.y, pdfRevRect.w, pdfRevRect.h, 0, 0, crop.width, crop.height);
+  const blob = await new Promise(resolve => crop.toBlob(resolve, 'image/png'));
+  if (!blob) return null;
+  const fname = `graph_${Date.now()}_${Math.random().toString(36).slice(2,8)}.png`;
+  const { error } = await db.storage.from('bank_images').upload(fname, blob, { contentType: 'image/png' });
+  if (error) { alert('이미지 업로드 실패: ' + error.message); return null; }
+  const { data } = db.storage.from('bank_images').getPublicUrl(fname);
+  return data.publicUrl;
+}
+
+document.getElementById('pdfRevSaveBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('pdfRevErr');
+  errEl.classList.add('hidden');
+  const text = document.getElementById('pdfRevContentText').value.trim();
+  const isMc = document.querySelector('input[name="pdfRevType"]:checked').value === 'mc';
+  if (!text) { errEl.textContent = '문제 지문을 입력하세요.'; errEl.classList.remove('hidden'); return; }
+  let row = { curriculum_unit_id: pdfRevUnitId, content_text: text, type: isMc ? 'mc' : 'short', status: '검토대기', difficulty: document.getElementById('pdfRevDifficulty').value };
+  if (isMc) {
+    const sel = document.getElementById('pdfRevChoiceSelect').querySelector('.selected');
+    if (!sel) { errEl.textContent = '정답 번호를 선택하세요.'; errEl.classList.remove('hidden'); return; }
+    row.correct_choice = Number(sel.textContent);
+  } else {
+    const val = document.getElementById('pdfRevValue').value.trim();
+    if (!val) { errEl.textContent = '정답 값을 입력하세요.'; errEl.classList.remove('hidden'); return; }
+    row.correct_value = val;
+  }
+  if (document.getElementById('pdfRevHasGraph').checked) {
+    const url = await cropAndUploadPdfRevImage();
+    if (url) row.image_url = url;
+  }
+  const dupWarning = await checkDuplicateWarning(text, pdfRevUnitId);
+  if (dupWarning && !confirm(dupWarning + '\n\n그래도 저장할까요?')) return;
+  const { error } = await db.from('bank_problems').insert(row);
+  if (error) { errEl.textContent = '저장 실패: ' + error.message; errEl.classList.remove('hidden'); return; }
+  advancePdfReview();
+});
+document.getElementById('pdfRevSkipBtn').addEventListener('click', advancePdfReview);
+document.getElementById('bankPdfReviewCloseBtn').addEventListener('click', () => document.getElementById('bankPdfReviewModal').classList.remove('show'));
+
+async function advancePdfReview() {
+  pdfRevIndex++;
+  if (pdfRevIndex >= pdfRevQueue.length) {
+    document.getElementById('bankPdfReviewModal').classList.remove('show');
+    await loadBankProblems();
+    renderBankList();
+    return;
+  }
+  loadPdfReviewItem();
+}
+
+// ---- 문제은행 검색 → 학습지 제작 연동 (학습지 편집기에서 문제 가져오기) ----
+let bankPickerSelected = new Set();
+let bankPickerPool = [];
+let bankPickerOnAdd = null;
+
+async function openBankPickerModal(getAssignedIds) {
+  bankPickerOnAdd = getAssignedIds;
+  bankPickerSelected = new Set();
+  if (!allCurriculumUnits.length) { await loadCurriculumUnits(); }
+  if (!allProblemTypes.length) { await loadProblemTypes(); }
+  const { data } = await db.from('bank_problems')
+    .select('*, curriculum_units(grade, subject, major_unit, minor_unit)')
+    .is('deleted_at', null).eq('status', '승인')
+    .order('created_at', { ascending: false });
+  bankPickerPool = data || [];
+
+  const fill = (id, key, placeholder, filterFn) => {
+    const sel = document.getElementById(id); const prev = sel.value;
+    const pool = allCurriculumUnits.filter(filterFn);
+    sel.innerHTML = `<option value="">${placeholder}</option>` + uniqueSorted(pool.map(u=>u[key])).map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    if ([...sel.options].some(o=>o.value===prev)) sel.value = prev;
+  };
+  const refreshFilters = () => {
+    const g = document.getElementById('pickGradeFilter').value, s = document.getElementById('pickSubjectFilter').value, maj = document.getElementById('pickMajorFilter').value;
+    fill('pickGradeFilter','grade','전체 학년', () => true);
+    fill('pickSubjectFilter','subject','전체 과목', u => !g || u.grade===g);
+    fill('pickMajorFilter','major_unit','전체 대단원', u => (!g||u.grade===g) && (!s||u.subject===s));
+    fill('pickMinorFilter','minor_unit','전체 중단원', u => (!g||u.grade===g) && (!s||u.subject===s) && (!maj||u.major_unit===maj));
+  };
+  refreshFilters();
+  renderBankPickerList();
+  document.getElementById('bankPickerModal').classList.add('show');
+}
+['pickGradeFilter','pickSubjectFilter','pickMajorFilter','pickMinorFilter'].forEach(id => {
+  document.getElementById(id).addEventListener('change', renderBankPickerList);
+});
+document.getElementById('pickSearchInput').addEventListener('input', debounce(renderBankPickerList, 250));
+
+function renderBankPickerList() {
+  const g = document.getElementById('pickGradeFilter').value, s = document.getElementById('pickSubjectFilter').value;
+  const maj = document.getElementById('pickMajorFilter').value, min = document.getElementById('pickMinorFilter').value;
+  const kw = document.getElementById('pickSearchInput').value.trim().toLowerCase();
+  const list = bankPickerPool.filter(p => {
+    const u = p.curriculum_units;
+    if (g && (!u || u.grade!==g)) return false;
+    if (s && (!u || u.subject!==s)) return false;
+    if (maj && (!u || u.major_unit!==maj)) return false;
+    if (min && (!u || u.minor_unit!==min)) return false;
+    if (kw && !(p.content_text||'').toLowerCase().includes(kw)) return false;
+    return true;
+  });
+  const wrap = document.getElementById('bankPickerList');
+  wrap.innerHTML = '';
+  if (!list.length) { wrap.innerHTML = '<div style="color:#999;font-size:13px;padding:14px 0;text-align:center">조건에 맞는 문제가 없습니다.</div>'; return; }
+  list.forEach(p => {
+    const row = document.createElement('label');
+    row.style.cssText = 'display:flex;gap:8px;align-items:flex-start;border:1.5px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:8px;cursor:pointer;';
+    row.innerHTML = `
+      <input type="checkbox" style="margin-top:3px;width:auto;" ${bankPickerSelected.has(p.id)?'checked':''}>
+      <div style="flex:1;">
+        <div style="font-size:11px;color:#999;">${escapeHtml(unitLabel(p.curriculum_units))}</div>
+        <div style="font-size:13px;white-space:pre-wrap;">${escapeHtml((p.content_text||'').slice(0,120))}${(p.content_text||'').length>120?'...':''}</div>
+      </div>
+    `;
+    row.querySelector('input').addEventListener('change', e => {
+      if (e.target.checked) bankPickerSelected.add(p.id); else bankPickerSelected.delete(p.id);
+      document.getElementById('bankPickerCount').textContent = bankPickerSelected.size + '개 선택됨';
+    });
+    wrap.appendChild(row);
+  });
+}
+document.getElementById('bankPickerCloseBtn').addEventListener('click', () => document.getElementById('bankPickerModal').classList.remove('show'));
+document.getElementById('bankPickerAddBtn').addEventListener('click', () => {
+  const chosen = bankPickerPool.filter(p => bankPickerSelected.has(p.id));
+  chosen.forEach(p => {
+    editorQuestions.push({
+      type: p.type, correct_choice: p.correct_choice, correct_value: p.correct_value || '',
+      answer_prefix: p.answer_prefix || '', answer_suffix: p.answer_suffix || '', tolerance: p.tolerance || 0,
+      tag_id: '', bank_problem_id: p.id, bank_preview: (p.content_text||'').slice(0,60)
+    });
+  });
+  document.getElementById('wsQCount').value = editorQuestions.length;
+  renderQuestionBoxes();
+  document.getElementById('bankPickerModal').classList.remove('show');
+});
+
+// ---- 노출 이력 기반 중복 배정 방지 ----
+// 학습지를 저장/배정하기 직전, 이번에 담긴 문제은행 문항 중 이미 그 학생이 예전에 풀어본 문제가 있으면 경고
+async function checkExposureHistory(questions, assignedStudentIds) {
+  const bankIds = [...new Set(questions.map(q => q.bank_problem_id).filter(Boolean))];
+  if (!bankIds.length || !assignedStudentIds.length) return null;
+  const { data, error } = await db.from('attempt_answers')
+    .select('questions!inner(bank_problem_id), attempts!inner(student_id)')
+    .in('questions.bank_problem_id', bankIds)
+    .in('attempts.student_id', assignedStudentIds);
+  if (error || !data || !data.length) return null;
+  const hitStudentIds = new Set(data.map(r => r.attempts?.student_id).filter(Boolean));
+  if (!hitStudentIds.size) return null;
+  const names = allStudents.filter(s => hitStudentIds.has(s.id)).map(s => s.name);
+  return `${names.join(', ')} 학생은 이번에 담긴 문제은행 문항 중 일부를 예전에 이미 풀어본 적이 있습니다.`;
+}
+
+// ---- 정답률 기반 난이도 재조정 제안 ----
+async function openDifficultySuggestModal() {
+  const modal = document.getElementById('difficultySuggestModal');
+  const body = document.getElementById('difficultySuggestBody');
+  modal.classList.add('show');
+  const listArea = document.createElement('div');
+  listArea.id = 'difficultySuggestList';
+  listArea.innerHTML = '<div style="color:#999;font-size:13px;">분석 중...</div>';
+  body.querySelectorAll('#difficultySuggestList').forEach(el => el.remove());
+  body.appendChild(listArea);
+  const { data, error } = await db.rpc('bank_difficulty_suggestions');
+  if (error) { listArea.innerHTML = '<div style="color:#ef4444;font-size:13px;">불러오기 실패: ' + escapeHtml(error.message) + '</div>'; return; }
+  if (!data || !data.length) { listArea.innerHTML = '<div style="color:#999;font-size:13px;">현재 제안할 항목이 없습니다.</div>'; return; }
+  listArea.innerHTML = '';
+  data.forEach(row => {
+    const suggested = row.wrong_rate >= 60 ? '상' : (row.wrong_rate <= 15 ? '하' : '중');
+    if (suggested === row.difficulty) return;
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1.5px solid #eee;border-radius:10px;padding:12px;margin-bottom:8px;';
+    card.innerHTML = `
+      <div style="white-space:pre-wrap;font-size:13px;margin-bottom:6px">${escapeHtml((row.content_text||'').slice(0,80))}${(row.content_text||'').length>80?'...':''}</div>
+      <div style="font-size:12px;color:#666;margin-bottom:8px">시도 ${row.attempt_count}회 · 오답률 ${row.wrong_rate}% · 현재 난이도 <b>${escapeHtml(row.difficulty)}</b> → 제안 <b style="color:#FF7A45">${suggested}</b></div>
+      <button class="btn btn-primary btn-apply-diff" data-id="${row.bank_problem_id}" data-new="${suggested}" style="padding:4px 12px;font-size:12px;">${suggested}(으)로 변경</button>
+    `;
+    listArea.appendChild(card);
+  });
+  if (!listArea.children.length) listArea.innerHTML = '<div style="color:#999;font-size:13px;">현재 제안할 항목이 없습니다.</div>';
+  listArea.querySelectorAll('.btn-apply-diff').forEach(btn => btn.addEventListener('click', async () => {
+    await db.from('bank_problems').update({ difficulty: btn.dataset.new }).eq('id', btn.dataset.id);
+    btn.closest('div').remove();
+    await loadBankProblems(); renderBankList();
+  }));
+}
+document.getElementById('bankDifficultySuggestBtn').addEventListener('click', openDifficultySuggestModal);
+document.getElementById('difficultySuggestCloseBtn').addEventListener('click', () => document.getElementById('difficultySuggestModal').classList.remove('show'));
+document.getElementById('difficultySuggestCloseBtn2').addEventListener('click', () => document.getElementById('difficultySuggestModal').classList.remove('show'));
+
+// ---- 중복 문제 자동 감지 (pg_trgm 유사도, 저장 직전 경고) ----
+async function checkDuplicateWarning(text, unitId) {
+  try {
+    const { data, error } = await db.rpc('find_similar_bank_problems', { target_text: text, unit_id: unitId || null, threshold: 0.4 });
+    if (error || !data || !data.length) return null;
+    const top = data[0];
+    return `이미 등록된 문제와 ${Math.round(top.similarity * 100)}% 정도 비슷합니다:\n"${(top.content_text || '').slice(0, 60)}${(top.content_text||'').length > 60 ? '...' : ''}"`;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---- 원본 ↔ 쌍둥이 탐색 모달 ----
+async function openTwinModal(id, mode) {
+  const modal = document.getElementById('twinModal');
+  const body = document.getElementById('twinModalBody');
+  body.innerHTML = '<div style="color:#999;font-size:13px;">불러오는 중...</div>';
+  modal.classList.add('show');
+  if (mode === 'origin') {
+    document.getElementById('twinModalTitle').textContent = '원본 문제';
+    const { data } = await db.from('bank_problems').select('*, curriculum_units(grade,subject,major_unit,minor_unit)').eq('id', id).single();
+    body.innerHTML = data ? renderTwinCard(data) : '<div>원본 문제를 찾을 수 없습니다. (삭제되었을 수 있습니다)</div>';
+  } else {
+    document.getElementById('twinModalTitle').textContent = '쌍둥이 문제';
+    const { data } = await db.from('bank_problems').select('*, curriculum_units(grade,subject,major_unit,minor_unit)').eq('origin_problem_id', id).is('deleted_at', null);
+    body.innerHTML = (data && data.length) ? data.map(renderTwinCard).join('') : '<div style="color:#999;font-size:13px;">쌍둥이 문제가 없습니다.</div>';
+  }
+  typesetMath(body);
+}
+document.getElementById('twinModalCloseBtn').addEventListener('click', () => document.getElementById('twinModal').classList.remove('show'));
+document.getElementById('twinModalCloseBtn2').addEventListener('click', () => document.getElementById('twinModal').classList.remove('show'));
+function renderTwinCard(p) {
+  const answer = p.type === 'mc' ? `${p.correct_choice}번` : `${p.answer_prefix||''}${p.correct_value||''}${p.answer_suffix||''}`;
+  return `<div style="border:1.5px solid #eee;border-radius:10px;padding:12px;margin-bottom:8px;">
+    <div style="font-size:12px;color:#999;margin-bottom:6px">${escapeHtml(unitLabel(p.curriculum_units))}</div>
+    <div style="white-space:pre-wrap;font-size:14px;margin-bottom:6px">${escapeHtml(p.content_text)}</div>
+    <div style="font-size:12px;color:#666">정답: ${escapeHtml(answer)}</div>
+  </div>`;
+}
+
+// ---- 휴지통 (30일 보관, 복구/영구삭제) ----
+async function openTrashModal() {
+  const modal = document.getElementById('trashModal');
+  const body = document.getElementById('trashModalBody');
+  body.innerHTML = '<div style="color:#999;font-size:13px;">불러오는 중...</div>';
+  modal.classList.add('show');
+  const { data } = await db.from('bank_problems').select('*, curriculum_units(grade,subject,major_unit,minor_unit)').not('deleted_at', 'is', null).order('deleted_at', { ascending: false });
+  const list = data || [];
+  if (!list.length) { body.innerHTML = '<div style="color:#999;font-size:13px;">휴지통이 비어있습니다.</div>'; return; }
+  body.innerHTML = '';
+  list.forEach(p => {
+    const deletedDate = new Date(p.deleted_at);
+    const purgeDate = new Date(deletedDate.getTime() + 30*24*60*60*1000);
+    const card = document.createElement('div');
+    card.style.cssText = 'border:1.5px solid #eee;border-radius:10px;padding:12px;margin-bottom:8px;';
+    card.innerHTML = `
+      <div style="font-size:12px;color:#999;margin-bottom:6px">${escapeHtml(unitLabel(p.curriculum_units))} · ${purgeDate.toLocaleDateString('ko-KR')} 자동 삭제 예정</div>
+      <div style="white-space:pre-wrap;font-size:14px;margin-bottom:8px">${escapeHtml(p.content_text)}</div>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-secondary btn-restore" data-id="${p.id}" style="padding:4px 10px;font-size:12px;">복구</button>
+        <button class="btn btn-danger btn-purge" data-id="${p.id}" style="padding:4px 10px;font-size:12px;">영구 삭제</button>
+      </div>
+    `;
+    body.appendChild(card);
+  });
+  body.querySelectorAll('.btn-restore').forEach(btn => btn.addEventListener('click', async () => {
+    await db.from('bank_problems').update({ deleted_at: null }).eq('id', btn.dataset.id);
+    await loadBankProblems(); renderBankList(); openTrashModal();
+  }));
+  body.querySelectorAll('.btn-purge').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirmDelete('영구 삭제하면 복구할 수 없습니다. 계속할까요?')) return;
+    const target = list.find(x => x.id === btn.dataset.id);
+    await deleteBankProblemPermanently(target);
+    openTrashModal();
+  }));
+  typesetMath(body);
+}
+// 이미지가 있는 문제를 영구 삭제할 때 Storage의 그래프 이미지 파일도 함께 지워서 고아 파일이 남지 않게 함
+async function deleteBankProblemPermanently(problem) {
+  if (problem && problem.image_url) {
+    const fname = problem.image_url.split('/bank_images/').pop();
+    if (fname) await db.storage.from('bank_images').remove([fname]).catch(() => {});
+  }
+  await db.from('bank_problems').delete().eq('id', problem.id);
+}
+document.getElementById('bankTrashBtn').addEventListener('click', openTrashModal);
+document.getElementById('trashModalCloseBtn').addEventListener('click', () => document.getElementById('trashModal').classList.remove('show'));
+document.getElementById('trashModalCloseBtn2').addEventListener('click', () => document.getElementById('trashModal').classList.remove('show'));
+
+// ---- 단원 관리 (학년-과목-대단원-중단원 + 유형) ----
+function openCurriculumModal() {
+  document.getElementById('curGradeInput').value = '';
+  document.getElementById('curSubjectInput').value = '';
+  document.getElementById('curMajorInput').value = '';
+  document.getElementById('curMinorInput').value = '';
+  document.getElementById('curErr').classList.add('hidden');
+  renderCurriculumList();
+  document.getElementById('curriculumModal').classList.add('show');
+}
+function closeCurriculumModal() { document.getElementById('curriculumModal').classList.remove('show'); }
+document.getElementById('curriculumManageBtn').addEventListener('click', openCurriculumModal);
+document.getElementById('curriculumModalCloseBtn').addEventListener('click', closeCurriculumModal);
+document.getElementById('curriculumModalCloseBtn2').addEventListener('click', closeCurriculumModal);
+
+function renderCurriculumList() {
+  const wrap = document.getElementById('curriculumList');
+  wrap.innerHTML = '';
+  if (!allCurriculumUnits.length) { wrap.innerHTML = '<div style="color:#999;font-size:13px;">등록된 단원이 없습니다.</div>'; return; }
+  allCurriculumUnits.forEach(u => {
+    const types = allProblemTypes.filter(t => t.curriculum_unit_id === u.id);
+    const row = document.createElement('div');
+    row.style.cssText = 'border:1.5px solid #eee;border-radius:10px;padding:10px 12px;margin-bottom:8px;';
+    row.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">
+        <b style="font-size:13px;">${escapeHtml(unitLabel(u))}</b>
+        <button class="btn btn-danger btn-del-unit" data-id="${u.id}" style="padding:3px 8px;font-size:11px;">단원 삭제</button>
+      </div>
+      <div class="cur-type-chips" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;"></div>
+      <div style="display:flex;gap:6px;margin-top:8px;">
+        <input type="text" class="cur-type-input" placeholder="유형명 추가 (예: 합성함수의 연속)" style="flex:1;padding:6px 8px;font-size:12px;border:1.5px solid #e0e0e0;border-radius:6px;">
+        <button class="btn btn-secondary btn-add-type" data-id="${u.id}" style="padding:4px 10px;font-size:12px;">추가</button>
+      </div>
+    `;
+    const chips = row.querySelector('.cur-type-chips');
+    types.forEach(t => {
+      const chip = document.createElement('span');
+      chip.style.cssText = 'font-size:11px;padding:3px 8px;border-radius:10px;background:#f2f2f2;color:#666;display:flex;align-items:center;gap:4px;';
+      chip.innerHTML = `${escapeHtml(t.name)} <span data-tid="${t.id}" class="btn-del-type" style="cursor:pointer;color:#ef4444;">&times;</span>`;
+      chips.appendChild(chip);
+    });
+    wrap.appendChild(row);
+  });
+
+  wrap.querySelectorAll('.btn-del-unit').forEach(btn => btn.addEventListener('click', async () => {
+    if (!confirmDelete('이 단원을 삭제할까요? 이 단원으로 분류된 문제는 미분류 상태가 됩니다.')) return;
+    await db.from('curriculum_units').delete().eq('id', btn.dataset.id);
+    await loadCurriculumUnits(); await loadProblemTypes();
+    renderCurriculumList(); populateBankFilterOptions(); populateBankAddUnitSelect();
+    await loadBankProblems(); renderBankList();
+  }));
+  wrap.querySelectorAll('.btn-add-type').forEach(btn => btn.addEventListener('click', async () => {
+    const input = btn.closest('div').querySelector('.cur-type-input');
+    const name = input.value.trim();
+    if (!name) return;
+    await db.from('problem_types').insert({ curriculum_unit_id: btn.dataset.id, name });
+    await loadProblemTypes();
+    renderCurriculumList(); updateBankTypeOptions();
+  }));
+  wrap.querySelectorAll('.btn-del-type').forEach(el => el.addEventListener('click', async () => {
+    if (!confirm('이 유형을 삭제할까요?')) return;
+    await db.from('problem_types').delete().eq('id', el.dataset.tid);
+    await loadProblemTypes();
+    renderCurriculumList(); updateBankTypeOptions();
+  }));
+}
+
+document.getElementById('curAddBtn').addEventListener('click', async () => {
+  const errEl = document.getElementById('curErr');
+  errEl.classList.add('hidden');
+  const grade = document.getElementById('curGradeInput').value.trim();
+  const subject = document.getElementById('curSubjectInput').value.trim();
+  const major = document.getElementById('curMajorInput').value.trim();
+  const minor = document.getElementById('curMinorInput').value.trim();
+  if (!grade || !subject || !major || !minor) { errEl.textContent = '학년/과목/대단원/중단원을 모두 입력하세요.'; errEl.classList.remove('hidden'); return; }
+  const { error } = await db.from('curriculum_units').insert({ grade, subject, major_unit: major, minor_unit: minor });
+  if (error) { errEl.textContent = error.message.includes('duplicate') ? '이미 등록된 단원입니다.' : ('추가 실패: ' + error.message); errEl.classList.remove('hidden'); return; }
+  document.getElementById('curGradeInput').value = '';
+  document.getElementById('curSubjectInput').value = '';
+  document.getElementById('curMajorInput').value = '';
+  document.getElementById('curMinorInput').value = '';
+  await loadCurriculumUnits();
+  renderCurriculumList(); populateBankFilterOptions(); populateBankAddUnitSelect();
+});
 </script>
 </body>
 </html>
