@@ -2,6 +2,14 @@
 // 문항별 "지문 텍스트 + 정답 + 난이도 추정 + 그래프 포함 여부/페이지"를 추출합니다.
 // (API 키는 Vercel 프로젝트의 환경변수 ANTHROPIC_API_KEY 로 설정하세요. parse-worksheet.js와 동일한 키를 씁니다.)
 
+function tryParseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    return null;
+  }
+}
+
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'POST 요청만 지원합니다.' });
@@ -64,20 +72,36 @@ module.exports = async function handler(req, res) {
       return;
     }
 
+    // 문항이 많은 PDF는 출력이 max_tokens(8192)에서 잘려 JSON이 중간에 끊길 수 있음
+    if (data.stop_reason === 'max_tokens') {
+      res.status(500).json({ error: 'PDF에 문항이 너무 많아 한 번에 처리하지 못했습니다. PDF를 10~15문제씩 나눠서 다시 올려주세요.' });
+      return;
+    }
+
     const textBlock = (data.content || []).find(c => c.type === 'text');
     let raw = textBlock ? textBlock.text : '';
     raw = raw.trim().replace(/^```json/i, '').replace(/^```/, '').replace(/```$/, '').trim();
 
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch (e) {
-      res.status(500).json({ error: 'AI 응답을 JSON으로 해석하지 못했습니다. 다시 시도하거나 수동으로 입력해주세요.', raw });
+    let parsed = tryParseJson(raw);
+    if (!parsed) {
+      // 앞뒤에 설명 문구가 섞여 나온 경우, 첫 '{'부터 마지막 '}'까지만 다시 시도
+      const start = raw.indexOf('{');
+      const end = raw.lastIndexOf('}');
+      if (start !== -1 && end !== -1 && end > start) {
+        parsed = tryParseJson(raw.slice(start, end + 1));
+      }
+    }
+
+    if (!parsed) {
+      res.status(500).json({
+        error: 'AI 응답을 JSON으로 해석하지 못했습니다. 다시 시도하거나 수동으로 입력해주세요.',
+        raw: raw.slice(0, 1500)
+      });
       return;
     }
 
-    if (!parsed || !Array.isArray(parsed.questions)) {
-      res.status(500).json({ error: 'AI 응답 형식이 올바르지 않습니다.', raw });
+    if (!Array.isArray(parsed.questions)) {
+      res.status(500).json({ error: 'AI 응답 형식이 올바르지 않습니다.', raw: raw.slice(0, 1500) });
       return;
     }
 

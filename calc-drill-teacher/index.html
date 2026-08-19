@@ -2193,7 +2193,11 @@ document.getElementById('bankPdfParseBtn').addEventListener('click', async () =>
       body: JSON.stringify({ pdfBase64: base64 })
     });
     const data = await resp.json();
-    if (!resp.ok) { statusEl.style.color = '#ef4444'; statusEl.textContent = data.error || '분석에 실패했습니다.'; return; }
+    if (!resp.ok) {
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = (data.error || '분석에 실패했습니다.') + (data.raw ? ' (AI 응답 일부: ' + data.raw.slice(0, 200) + ')' : '');
+      return;
+    }
     if (!data.questions || !data.questions.length) { statusEl.style.color = '#ef4444'; statusEl.textContent = '문항을 찾지 못했습니다. 수동으로 입력해주세요.'; return; }
     statusEl.style.color = '#16a34a';
     statusEl.textContent = data.questions.length + '개 문항을 찾았습니다. 검토 화면에서 하나씩 확인하고 저장하세요.';
